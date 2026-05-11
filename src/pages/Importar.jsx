@@ -3,6 +3,8 @@ import { Upload, CheckCircle, XCircle, Info, HardDrive, Trash2 } from 'lucide-re
 import { useToastCtx } from '../ToastContext';
 
 const MODULES = [
+  { key: 'clientes', label: 'Clientes', cols: 'name, first_name, last_name, phone, email, address, created_at' },
+  { key: 'servicos', label: 'Serviços', cols: 'name, description, category, unit_price, unit, active, created_at' },
   { key: 'os', label: 'Ordens de Serviço', cols: 'number, title, status, total, payment_status, note, created_at' },
   { key: 'caixa', label: 'Controle de Caixa', cols: 'occurred_at, amount, method, account_label, category, description, source_type' },
   { key: 'ap', label: 'Contas a Pagar', cols: 'description, category, amount, due_date, status, note' },

@@ -22,6 +22,12 @@ export default function ContasPagar() {
   const [showCategories, setShowCategories] = useState(false);
   const [newCategory, setNewCategory] = useState('');
   const firstInputRef = useModalFocus(showForm);
+  const [methods, setMethods] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [showNewMethod, setShowNewMethod] = useState(false);
+  const [newMethodName, setNewMethodName] = useState('');
+  const [showNewAccount, setShowNewAccount] = useState(false);
+  const [newAccountLabel, setNewAccountLabel] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -35,6 +41,11 @@ export default function ContasPagar() {
   }, []);
 
   useEffect(() => { load(); loadCategories(); }, [load, loadCategories]);
+  useEffect(() => { window.api.paymentMethods?.list?.().then(r => {
+    const list = (r||[]).filter(m => m.active).map(m => ({ value: m.name, label: m.name.charAt(0).toUpperCase()+m.name.slice(1) }));
+    setMethods(list);
+  }).catch(()=>setMethods([])); }, []);
+  useEffect(() => { window.api.bankAccounts?.list?.().then(r => setAccounts(r||[])).catch(()=>setAccounts([])); }, []);
 
   const total = rows.reduce((s, r) => s + (r.amount || 0), 0);
   const todayStr = today();
@@ -73,6 +84,33 @@ export default function ContasPagar() {
       toast.error('Erro ao registrar pagamento: ' + e.message);
     }
     setPayModal(null); load();
+  }
+
+  async function handleCreateMethod() {
+    const name = (newMethodName||'').trim().toLowerCase();
+    if (!name) return;
+    try {
+      await window.api.paymentMethods.create({ name, active: 1 });
+      const r = await window.api.paymentMethods.list();
+      const list = (r||[]).filter(m => m.active).map(m => ({ value: m.name, label: m.name.charAt(0).toUpperCase()+m.name.slice(1) }));
+      setMethods(list);
+      setPayForm(f => ({ ...f, method: name }));
+      setNewMethodName(''); setShowNewMethod(false);
+      toast.success('Forma de pagamento adicionada!');
+    } catch { toast.error('Erro ao adicionar forma de pagamento.'); }
+  }
+
+  async function handleCreateAccount() {
+    const label = (newAccountLabel||'').trim();
+    if (!label) return;
+    try {
+      await window.api.bankAccounts.create({ label });
+      const r = await window.api.bankAccounts.list();
+      setAccounts(r||[]);
+      setPayForm(f => ({ ...f, account_label: label }));
+      setNewAccountLabel(''); setShowNewAccount(false);
+      toast.success('Conta/banco adicionada!');
+    } catch { toast.error('Erro ao adicionar conta/banco.'); }
   }
 
   async function handleUnpay(r) {
@@ -151,13 +189,13 @@ export default function ContasPagar() {
       <div className="bg-white rounded-xl border overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b">
-            <tr>{['Descrição', 'Categoria', 'Vencimento', 'Status', 'Valor', ''].map(h => (
+            <tr>{['Descrição', 'Categoria', 'Vencimento', 'Status', 'Conta/Banco', 'Valor', ''].map(h => (
               <th key={h} className="text-left px-3 py-2.5 font-medium text-gray-600">{h}</th>
             ))}</tr>
           </thead>
           <tbody>
-            {loading ? <tr><td colSpan={6} className="text-center py-8 text-gray-400">Carregando...</td></tr>
-              : rows.length === 0 ? <tr><td colSpan={6} className="text-center py-8 text-gray-400">Nenhuma conta.</td></tr>
+            {loading ? <tr><td colSpan={7} className="text-center py-8 text-gray-400">Carregando...</td></tr>
+              : rows.length === 0 ? <tr><td colSpan={7} className="text-center py-8 text-gray-400">Nenhuma conta.</td></tr>
               : rows.map(r => (
                 <tr key={r.id} className="border-b last:border-0 hover:bg-gray-50">
                   <td className="px-3 py-2.5">
@@ -174,6 +212,7 @@ export default function ContasPagar() {
                         : <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 font-medium">pendente</span>
                     }
                   </td>
+                  <td className="px-3 py-2.5 text-gray-500">{r.account_label || '-'}</td>
                   <td className="px-3 py-2.5 text-right font-medium">R$ {brl(r.amount)}</td>
                   <td className="px-3 py-2.5">
                     <div className="flex gap-1 justify-end">
@@ -228,10 +267,40 @@ export default function ContasPagar() {
             <p className="text-sm text-gray-500 mb-4">{payModal.description} — R$ {brl(payModal.amount)}</p>
             <div className="space-y-3">
               <input type="date" className="w-full border rounded-lg px-3 py-2 text-sm" value={payForm.paid_at} onChange={e => setPayForm(f => ({ ...f, paid_at: e.target.value }))} />
-              <select className="w-full border rounded-lg px-3 py-2 text-sm" value={payForm.method} onChange={e => setPayForm(f => ({ ...f, method: e.target.value }))}>
-                {['pix', 'dinheiro', 'debito', 'credito', 'transferencia'].map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
-              <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Conta/Banco (opcional)" value={payForm.account_label} onChange={e => setPayForm(f => ({ ...f, account_label: e.target.value }))} />
+              <div className="flex gap-2">
+                <div className="flex-1 flex items-center gap-1">
+                  <select className="w-full border rounded-lg px-3 py-2 text-sm" value={payForm.method} onChange={e => setPayForm(f => ({ ...f, method: e.target.value }))}>
+                    {(methods.length>0 ? methods : [
+                      { value: 'dinheiro', label: 'Dinheiro' },
+                      { value: 'pix', label: 'Pix' },
+                      { value: 'debito', label: 'Débito' },
+                      { value: 'credito', label: 'Crédito' },
+                    ]).map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                  </select>
+                  <button type="button" onClick={() => setShowNewMethod(v=>!v)} className="px-2 py-2 text-xs border rounded-md bg-white hover:bg-gray-50">+ </button>
+                </div>
+                <div className="flex-1 flex items-center gap-1">
+                  <select className="w-full border rounded-lg px-3 py-2 text-sm disabled:opacity-50" value={payForm.account_label} onChange={e => setPayForm(f => ({ ...f, account_label: e.target.value }))} disabled={payForm.method==='dinheiro'}>
+                    <option value="">Selecione a conta</option>
+                    {accounts.map(a => <option key={a.id} value={a.label}>{a.label}</option>)}
+                  </select>
+                  <button type="button" onClick={() => setShowNewAccount(v=>!v)} className="px-2 py-2 text-xs border rounded-md bg-white hover:bg-gray-50">+ </button>
+                </div>
+              </div>
+              {showNewMethod && (
+                <div className="flex gap-2 items-center">
+                  <input className="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="Nova forma (ex.: pix)" value={newMethodName} onChange={e=>setNewMethodName(e.target.value)} />
+                  <button type="button" onClick={handleCreateMethod} disabled={!newMethodName.trim()} className="px-3 py-2 text-xs bg-blue-600 text-white rounded-md disabled:opacity-40">Adicionar</button>
+                  <button type="button" onClick={()=>{setShowNewMethod(false);setNewMethodName('');}} className="px-3 py-2 text-xs border rounded-md bg-white">Cancelar</button>
+                </div>
+              )}
+              {showNewAccount && (
+                <div className="flex gap-2 items-center">
+                  <input className="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="Nova conta (ex.: Caixa)" value={newAccountLabel} onChange={e=>setNewAccountLabel(e.target.value)} />
+                  <button type="button" onClick={handleCreateAccount} disabled={!newAccountLabel.trim()} className="px-3 py-2 text-xs bg-blue-600 text-white rounded-md disabled:opacity-40">Adicionar</button>
+                  <button type="button" onClick={()=>{setShowNewAccount(false);setNewAccountLabel('');}} className="px-3 py-2 text-xs border rounded-md bg-white">Cancelar</button>
+                </div>
+              )}
               <div className="flex gap-2 justify-end pt-1">
                 <button type="button" onClick={() => setPayModal(null)} className="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
                 <button type="button" onClick={handlePay} className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm">Confirmar</button>

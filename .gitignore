@@ -3,6 +3,7 @@ node_modules/
 dist/
 build/
 out/
+.vscode/
 .release/
 releases/
 **/.DS_Store
@@ -37,3 +38,9 @@ coverage/
 
 # Generated exports
 *.csv
+
+# Electron builder outputs
+dist-electron/
+
+# Local databases / artifacts
+prod.db

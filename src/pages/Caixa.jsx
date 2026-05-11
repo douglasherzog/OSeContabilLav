@@ -5,7 +5,7 @@ import { Plus, RefreshCw, Pencil, Trash2, Download, Settings } from 'lucide-reac
 import { brl, fmtDateTime, monthStart, today, exportCSV } from '../utils';
 import { useToastCtx } from '../ToastContext';
 
-const METHODS = ['dinheiro', 'pix', 'debito', 'credito', 'transferencia', 'cheque'];
+// Métodos e contas serão carregados do backend
 const DIRECTIONS = [{ v: 'in', l: 'Entrada' }, { v: 'out', l: 'Saída' }];
 
 const emptyForm = { occurred_at: nowLocal(), amount: '', direction: 'in', method: 'pix', account_label: '', category: '', description: '' };
@@ -35,6 +35,13 @@ export default function Caixa() {
   const [showNewCat, setShowNewCat] = useState(false);
   const [showManageCats, setShowManageCats] = useState(false);
   const firstInputRef = useModalFocus(showForm);
+  // Listas padronizadas
+  const [methods, setMethods] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [showNewMethod, setShowNewMethod] = useState(false);
+  const [newMethodName, setNewMethodName] = useState('');
+  const [showNewAccount, setShowNewAccount] = useState(false);
+  const [newAccountLabel, setNewAccountLabel] = useState('');
 
   const loadCategories = useCallback(async () => {
     const cats = await window.api.caixa.listCategories();
@@ -42,6 +49,11 @@ export default function Caixa() {
   }, []);
 
   useEffect(() => { loadCategories(); }, [loadCategories]);
+  useEffect(() => { window.api.paymentMethods?.list?.().then(r => {
+    const list = (r||[]).filter(m => m.active).map(m => ({ value: m.name, label: m.name.charAt(0).toUpperCase()+m.name.slice(1) }));
+    setMethods(list);
+  }).catch(()=>setMethods([])); }, []);
+  useEffect(() => { window.api.bankAccounts?.list?.().then(r => setAccounts(r||[])).catch(()=>setAccounts([])); }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,6 +82,33 @@ export default function Caixa() {
         await window.api.caixa.create(payload);
         toast.success('Lançamento registrado!');
       }
+
+  async function handleCreateMethod() {
+    const name = (newMethodName||'').trim().toLowerCase();
+    if (!name) return;
+    try {
+      await window.api.paymentMethods.create({ name, active: 1 });
+      const r = await window.api.paymentMethods.list();
+      const list = (r||[]).filter(m => m.active).map(m => ({ value: m.name, label: m.name.charAt(0).toUpperCase()+m.name.slice(1) }));
+      setMethods(list);
+      setForm(f => ({ ...f, method: name }));
+      setNewMethodName(''); setShowNewMethod(false);
+      toast.success('Forma de pagamento adicionada!');
+    } catch { toast.error('Erro ao adicionar forma de pagamento.'); }
+  }
+
+  async function handleCreateAccount() {
+    const label = (newAccountLabel||'').trim();
+    if (!label) return;
+    try {
+      await window.api.bankAccounts.create({ label });
+      const r = await window.api.bankAccounts.list();
+      setAccounts(r||[]);
+      setForm(f => ({ ...f, account_label: label }));
+      setNewAccountLabel(''); setShowNewAccount(false);
+      toast.success('Conta/banco adicionada!');
+    } catch { toast.error('Erro ao adicionar conta/banco.'); }
+  }
       setForm(emptyForm);
       setShowForm(false);
       load();
@@ -255,9 +294,17 @@ export default function Caixa() {
                 </div>
                 <div className="flex-1">
                   <label className="text-xs text-gray-500 mb-1 block">Método</label>
-                  <select className="w-full border rounded-lg px-3 py-2 text-sm" value={form.method} onChange={e => setForm(f => ({ ...f, method: e.target.value }))}>
-                    {METHODS.map(m => <option key={m} value={m}>{m}</option>)}
-                  </select>
+                  <div className="flex items-center gap-1">
+                    <select className="w-full border rounded-lg px-3 py-2 text-sm" value={form.method} onChange={e => setForm(f => ({ ...f, method: e.target.value }))}>
+                      {(methods.length>0 ? methods : [
+                        { value: 'dinheiro', label: 'Dinheiro' },
+                        { value: 'pix', label: 'Pix' },
+                        { value: 'debito', label: 'Débito' },
+                        { value: 'credito', label: 'Crédito' },
+                      ]).map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                    </select>
+                    <button type="button" onClick={() => setShowNewMethod(v=>!v)} className="px-2 py-2 text-xs border rounded-md bg-white hover:bg-gray-50">+ </button>
+                  </div>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -281,9 +328,29 @@ export default function Caixa() {
                 </div>
                 <div className="flex-1">
                   <label className="text-xs text-gray-500 mb-1 block">Conta/Banco</label>
-                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Opcional" value={form.account_label} onChange={e => setForm(f => ({ ...f, account_label: e.target.value }))} />
+                  <div className="flex items-center gap-1">
+                    <select className="w-full border rounded-lg px-3 py-2 text-sm disabled:opacity-50" value={form.account_label} onChange={e => setForm(f => ({ ...f, account_label: e.target.value }))} disabled={form.method==='dinheiro'}>
+                      <option value="">Selecione a conta</option>
+                      {accounts.map(a => <option key={a.id} value={a.label}>{a.label}</option>)}
+                    </select>
+                    <button type="button" onClick={() => setShowNewAccount(v=>!v)} className="px-2 py-2 text-xs border rounded-md bg-white hover:bg-gray-50">+ </button>
+                  </div>
                 </div>
               </div>
+              {showNewMethod && (
+                <div className="flex gap-2 items-center">
+                  <input className="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="Nova forma (ex.: pix)" value={newMethodName} onChange={e=>setNewMethodName(e.target.value)} />
+                  <button type="button" onClick={handleCreateMethod} disabled={!newMethodName.trim()} className="px-3 py-2 text-xs bg-blue-600 text-white rounded-md disabled:opacity-40">Adicionar</button>
+                  <button type="button" onClick={()=>{setShowNewMethod(false);setNewMethodName('');}} className="px-3 py-2 text-xs border rounded-md bg-white">Cancelar</button>
+                </div>
+              )}
+              {showNewAccount && (
+                <div className="flex gap-2 items-center">
+                  <input className="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="Nova conta (ex.: Caixa)" value={newAccountLabel} onChange={e=>setNewAccountLabel(e.target.value)} />
+                  <button type="button" onClick={handleCreateAccount} disabled={!newAccountLabel.trim()} className="px-3 py-2 text-xs bg-blue-600 text-white rounded-md disabled:opacity-40">Adicionar</button>
+                  <button type="button" onClick={()=>{setShowNewAccount(false);setNewAccountLabel('');}} className="px-3 py-2 text-xs border rounded-md bg-white">Cancelar</button>
+                </div>
+              )}
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Descrição</label>
                 <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Descrição do lançamento" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />

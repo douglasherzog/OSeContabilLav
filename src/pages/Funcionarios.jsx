@@ -5,7 +5,7 @@ import { Plus, Pencil, Trash2, DollarSign, TrendingDown, Users, Calendar, Chevro
 import { brl, fmtDate, today, monthStart } from '../utils';
 import { useToastCtx } from '../ToastContext';
 
-const emptyForm = { name: '', type: 'integral', base_salary: '', start_date: today(), admission_date: '' };
+const emptyForm = { name: '', type: 'integral', base_salary: '', start_date: today(), admission_date: '', vacation_accrual_start: '' };
 
 export default function Funcionarios() {
   const toast = useToastCtx();
@@ -24,9 +24,14 @@ export default function Funcionarios() {
   const [showSalaryHistory, setShowSalaryHistory] = useState(false);
   const [vacationBalance, setVacationBalance] = useState(null);
   const [showVacationModal, setShowVacationModal] = useState(false);
+  const [showVacationRegister, setShowVacationRegister] = useState(false);
+  const [vacationForm, setVacationForm] = useState({ period_start: today(), period_end: today(), include_one_third: true, method: 'dinheiro', account_label: '', note: '' });
+  const [vacationPreview, setVacationPreview] = useState(null);
   const [pendingBalances, setPendingBalances] = useState([]);
   const [showPendingModal, setShowPendingModal] = useState(false);
   const [payPendingForm, setPayPendingForm] = useState({ id: null, method: 'dinheiro', account_label: '', create_ap: false, amount: '' });
+  const [showPayrollClose, setShowPayrollClose] = useState(false);
+  const [payrollForm, setPayrollForm] = useState({ net_amount: '', method: 'dinheiro', account_label: '', note: '' });
   const advanceAmountRef = useRef(null);
   const firstInputRef = useModalFocus(showForm);
   const currentMonthPending = pendingBalances.find(p => {
@@ -278,7 +283,8 @@ export default function Funcionarios() {
       type: r.type || 'integral',
       base_salary: String(r.base_salary || ''),
       start_date: startDate,
-      admission_date: r.admission_date ? String(r.admission_date).slice(0,10) : ''
+      admission_date: r.admission_date ? String(r.admission_date).slice(0,10) : '',
+      vacation_accrual_start: r.vacation_accrual_start ? String(r.vacation_accrual_start).slice(0,10) : (r.admission_date ? String(r.admission_date).slice(0,10) : '')
     });
     setEditing(r.id);
     setShowForm(true);
@@ -295,6 +301,43 @@ export default function Funcionarios() {
   function openVacationModal() {
     loadVacationBalance();
     setShowVacationModal(true);
+  }
+
+  async function loadVacationPreview(form = vacationForm) {
+    if (!selectedEmployee) return;
+    try {
+      const r = await window.api.vacation.preview({ employee_id: selectedEmployee.id, ...form });
+      if (r && !r.error) setVacationPreview(r); else setVacationPreview(null);
+    } catch { setVacationPreview(null); }
+  }
+
+  function openVacationRegister() {
+    const startDefault = selectedMonth + '-01';
+    const endDefault = selectedMonth + '-' + String(new Date(parseInt(selectedMonth.slice(0,4)), parseInt(selectedMonth.slice(5,7)), 0).getDate()).padStart(2,'0');
+    const init = { period_start: startDefault, period_end: endDefault, include_one_third: true, method: 'dinheiro', account_label: '', note: '' };
+    setVacationForm(init);
+    setShowVacationRegister(true);
+    loadVacationPreview(init);
+  }
+
+  useEffect(() => {
+    if (!showVacationRegister) return;
+    loadVacationPreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vacationForm.period_start, vacationForm.period_end, vacationForm.include_one_third, showVacationRegister]);
+
+  async function handleRegisterVacation() {
+    if (!selectedEmployee) return;
+    if (!vacationForm.period_start || !vacationForm.period_end) { toast.error('Informe o período das férias.'); return; }
+    try {
+      const res = await window.api.vacation.register({ employee_id: selectedEmployee.id, ...vacationForm });
+      if (res?.error) { toast.error(res.error); return; }
+      toast.success('Férias registradas com sucesso!');
+      setShowVacationRegister(false);
+      await loadAdvances();
+      await loadBalance();
+      await loadVacationBalance();
+    } catch (e) { console.error(e); toast.error('Erro ao registrar férias.'); }
   }
 
   function openSalaryHistory() {
@@ -378,6 +421,77 @@ export default function Funcionarios() {
                   value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} />
               </div>
             )}
+      {showPayrollClose && selectedEmployee && balance && createPortal(
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-bold">Fechar Folha do Mês</h2>
+                <p className="text-sm text-gray-500">{selectedEmployee.name} — {new Date(selectedMonth + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</p>
+              </div>
+              <button onClick={() => setShowPayrollClose(false)} className="text-gray-400 hover:text-gray-600">
+                <XCircle size={20} />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" 
+                placeholder="Líquido do mês (R$) *" value={payrollForm.net_amount}
+                onChange={e => setPayrollForm(f => ({ ...f, net_amount: e.target.value }))} step="0.01" />
+              <div className="bg-gray-50 rounded-lg p-3 text-sm">
+                <div className="flex justify-between"><span className="text-gray-500">Adiantamentos (salário)</span><span>R$ {brl(balance?.regular_advances || 0)}</span></div>
+                <div className="flex justify-between font-semibold mt-1">
+                  <span>A pagar no fechamento</span>
+                  <span className={(parseFloat(payrollForm.net_amount||'0') - (balance?.regular_advances||0)) < 0 ? 'text-red-600' : 'text-green-700'}>
+                    R$ {brl(Math.max(0, Math.round(((parseFloat(payrollForm.net_amount||'0') || 0) - (balance?.regular_advances||0)) * 100) / 100))}
+                  </span>
+                </div>
+              </div>
+              <select className="w-full border rounded-lg px-3 py-2 text-sm" 
+                value={payrollForm.method} onChange={e => setPayrollForm(f => ({ ...f, method: e.target.value }))}>
+                {['dinheiro', 'pix', 'debito', 'credito', 'transferencia'].map(m => 
+                  <option key={m} value={m}>{m}</option>
+                )}
+              </select>
+              <input className="w-full border rounded-lg px-3 py-2 text-sm" 
+                placeholder="Conta/Banco (opcional)" value={payrollForm.account_label} 
+                onChange={e => setPayrollForm(f => ({ ...f, account_label: e.target.value }))} />
+              <input className="w-full border rounded-lg px-3 py-2 text-sm" 
+                placeholder="Observação (opcional)" value={payrollForm.note} 
+                onChange={e => setPayrollForm(f => ({ ...f, note: e.target.value }))} />
+              {((parseFloat(payrollForm.net_amount||'0') || 0) - (balance?.regular_advances||0)) < 0 && (
+                <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
+                  Atenção: os adiantamentos superam o líquido informado. O fechamento gerará valor negativo (saída zero se você ajustar o líquido).
+                </div>
+              )}
+              <div className="flex gap-2 justify-end pt-1">
+                <button type="button" onClick={() => setShowPayrollClose(false)} 
+                  className="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
+                <button type="button" onClick={async () => {
+                  const net = parseFloat(payrollForm.net_amount);
+                  if (!net || net <= 0) { toast.error('Informe um líquido válido.'); return; }
+                  try {
+                    const res = await window.api.payroll.close({
+                      employee_id: selectedEmployee.id,
+                      month: selectedMonth,
+                      net_amount: net,
+                      method: payrollForm.method,
+                      account_label: payrollForm.account_label,
+                      note: payrollForm.note
+                    });
+                    if (res?.error) { toast.error(res.error); return; }
+                    toast.success('Folha fechada!');
+                    setShowPayrollClose(false);
+                    setPayrollForm({ net_amount: '', method: 'dinheiro', account_label: '', note: '' });
+                    await loadAdvances();
+                    await loadBalance();
+                  } catch { toast.error('Erro ao fechar a folha.'); }
+                }}
+                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm">Confirmar</button>
+              </div>
+            </div>
+          </div>
+        </div>, document.body)
+      }
           </div>
 
           {!selectedEmployee ? (
@@ -500,6 +614,12 @@ export default function Funcionarios() {
                       </div>
                     </div>
                   </div>
+                  <div className="flex justify-end pt-1">
+                    <button onClick={() => { setPayrollForm({ net_amount: '', method: 'dinheiro', account_label: '', note: '' }); setShowPayrollClose(true); }}
+                      className="text-xs bg-emerald-600 text-white px-3 py-1 rounded hover:bg-emerald-700">
+                      Fechar Folha do Mês
+                    </button>
+                  </div>
                   
                   {/* Detalhamento de férias e décimo */}
                   {(balance.vacation_advances > 0 || balance.thirteen_advances > 0) && (
@@ -620,6 +740,12 @@ export default function Funcionarios() {
                 <label className="text-xs text-gray-500 mb-1 block">Data de Admissão *</label>
                 <input type="date" className="w-full border rounded-lg px-3 py-2 text-sm" 
                   value={form.admission_date} onChange={e => setForm(f => ({ ...f, admission_date: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Início da Contagem de Férias</label>
+                <input type="date" className="w-full border rounded-lg px-3 py-2 text-sm" 
+                  value={form.vacation_accrual_start} onChange={e => setForm(f => ({ ...f, vacation_accrual_start: e.target.value }))} />
+                <div className="text-[11px] text-gray-500 mt-1">Use esta data se quiser começar a contar férias diferente da admissão (ex.: sistema iniciando agora).</div>
               </div>
               <select className="w-full border rounded-lg px-3 py-2 text-sm" 
                 value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
@@ -874,7 +1000,7 @@ export default function Funcionarios() {
                 </div>
 
                 <div className="mt-4 pt-4 border-t flex gap-2">
-                  <button onClick={() => { setShowVacationModal(false); setAdvanceForm(f => ({ ...f, advance_type: 'ferias' })); setShowAdvanceForm(true); }} 
+                  <button onClick={() => { setShowVacationModal(false); openVacationRegister(); }} 
                     className="flex-1 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700">
                     Lançar Férias
                   </button>
@@ -883,6 +1009,65 @@ export default function Funcionarios() {
             ) : (
               <div className="text-center text-gray-400 py-4">Carregando...</div>
             )}
+          </div>
+        </div>
+      , document.body)}
+
+      {/* Modal Registrar Férias */}
+      {showVacationRegister && selectedEmployee && createPortal(
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">Registrar Férias</h2>
+              <button onClick={() => setShowVacationRegister(false)} className="text-gray-400 hover:text-gray-600">
+                <XCircle size={20} />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Início</label>
+                  <input type="date" className="w-full border rounded-lg px-3 py-2 text-sm" value={vacationForm.period_start}
+                    onChange={e => setVacationForm(f => ({ ...f, period_start: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Fim</label>
+                  <input type="date" className="w-full border rounded-lg px-3 py-2 text-sm" value={vacationForm.period_end}
+                    onChange={e => setVacationForm(f => ({ ...f, period_end: e.target.value }))} />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={!!vacationForm.include_one_third}
+                  onChange={e => setVacationForm(f => ({ ...f, include_one_third: e.target.checked }))} />
+                Incluir 1/3 Constitucional
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <select className="w-full border rounded-lg px-3 py-2 text-sm" 
+                  value={vacationForm.method} onChange={e => setVacationForm(f => ({ ...f, method: e.target.value }))}>
+                  {['dinheiro','pix','debito','credito','transferencia'].map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+                <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Conta/Banco (opcional)"
+                  value={vacationForm.account_label} onChange={e => setVacationForm(f => ({ ...f, account_label: e.target.value }))} />
+              </div>
+              <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Observação (opcional)"
+                value={vacationForm.note} onChange={e => setVacationForm(f => ({ ...f, note: e.target.value }))} />
+
+              {vacationPreview && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm">
+                  <div className="flex justify-between"><span>Dias</span><span className="font-medium">{vacationPreview.days}</span></div>
+                  <div className="flex justify-between"><span>Salário no início</span><span className="font-medium">R$ {brl(vacationPreview.salary_at_start)}</span></div>
+                  <div className="flex justify-between"><span>Base (pro rata)</span><span className="font-medium">R$ {brl(vacationPreview.base)}</span></div>
+                  <div className="flex justify-between"><span>1/3</span><span className="font-medium">R$ {brl(vacationPreview.one_third)}</span></div>
+                  <div className="flex justify-between"><span>Total</span><span className="font-bold">R$ {brl(vacationPreview.total)}</span></div>
+                  <div className="text-xs text-gray-500 mt-1">Ref. mês: {vacationPreview.reference_month}</div>
+                </div>
+              )}
+
+              <div className="flex gap-2 justify-end pt-1">
+                <button type="button" onClick={() => setShowVacationRegister(false)} className="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
+                <button type="button" onClick={handleRegisterVacation} className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700">Registrar</button>
+              </div>
+            </div>
           </div>
         </div>
       , document.body)}

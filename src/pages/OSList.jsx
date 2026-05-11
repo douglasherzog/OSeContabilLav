@@ -7,12 +7,7 @@ import { brl, fmtDateTime, monthStart, today, STATUS_LABELS, STATUS_COLORS, expo
 import { useToastCtx } from '../ToastContext';
 
 const STATUSES = ['', 'aberta', 'pronta', 'entregue', 'entregue_pendente'];
-const ENTRY_METHODS = [
-  { value: 'dinheiro', label: 'Dinheiro' },
-  { value: 'pix',      label: 'Pix' },
-  { value: 'debito',   label: 'Débito' },
-  { value: 'credito',  label: 'Crédito' },
-];
+// Métodos e contas padronizados
 
 export default function OSList() {
   const navigate = useNavigate();
@@ -47,7 +42,13 @@ export default function OSList() {
   const [showItemInput, setShowItemInput] = useState(false);
   const [showNewService, setShowNewService] = useState(false);
   const [newServiceForm, setNewServiceForm] = useState({ name: '', unit_price: '', unit: 'peca' });
-  const [entryPayment, setEntryPayment] = useState({ enabled: false, amount: '', method: 'dinheiro' });
+  const [entryPayment, setEntryPayment] = useState({ enabled: false, amount: '', method: 'dinheiro', account_label: '' });
+  const [methods, setMethods] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [showNewMethod, setShowNewMethod] = useState(false);
+  const [newMethodName, setNewMethodName] = useState('');
+  const [showNewAccount, setShowNewAccount] = useState(false);
+  const [newAccountLabel, setNewAccountLabel] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,6 +82,21 @@ export default function OSList() {
     return () => clearTimeout(t);
   }, [clientSearch]);
   useEffect(() => { window.api.services.list(false).then(r => setCatalog(r || [])); }, []);
+  useEffect(() => { window.api.paymentMethods?.list?.().then(r => {
+    const list = (r||[]).filter(m => m.active).map(m => ({ value: m.name, label: m.name.charAt(0).toUpperCase()+m.name.slice(1) }));
+    setMethods(list);
+  }).catch(()=>setMethods([])); }, []);
+  useEffect(() => { window.api.bankAccounts?.list?.().then(r => setAccounts(r||[])).catch(()=>setAccounts([])); }, []);
+  // Sugere conta se método não for dinheiro
+  useEffect(() => {
+    if (entryPayment.method !== 'dinheiro') {
+      if (!entryPayment.account_label && accounts.length > 0) {
+        setEntryPayment(p => ({ ...p, account_label: accounts[0].label }));
+      }
+    } else {
+      setEntryPayment(p => ({ ...p, account_label: '' }));
+    }
+  }, [entryPayment.method, accounts]);
 
   async function handleQuickNewService() {
     try {
@@ -137,6 +153,7 @@ export default function OSList() {
           order_id: os.id,
           amount: parseFloat(entryPayment.amount),
           method: entryPayment.method,
+          account_label: entryPayment.account_label || '',
           when_type: 'entrada',
           payment_date: form.order_date || today(),
         });
@@ -144,7 +161,7 @@ export default function OSList() {
       setForm({ client_id: '', status: 'aberta', note: '', order_date: today() });
       setClientSearch('');
       setDraftItems([]);
-      setEntryPayment({ enabled: false, amount: '', method: 'dinheiro' });
+      setEntryPayment({ enabled: false, amount: '', method: 'dinheiro', account_label: '' });
       setShowForm(false);
       load();
       toast.success('OS criada com sucesso!');
@@ -488,7 +505,7 @@ export default function OSList() {
                           <div className="flex gap-2">
                             <input type="number" className="flex-1 border rounded-lg px-3 py-1.5 text-sm bg-white" placeholder="Preço (R$)" value={newServiceForm.unit_price} onChange={e => setNewServiceForm(f => ({ ...f, unit_price: e.target.value }))} step="0.01" min="0" />
                             <select className="w-24 border rounded-lg px-2 py-1.5 text-sm bg-white" value={newServiceForm.unit} onChange={e => setNewServiceForm(f => ({ ...f, unit: e.target.value }))}>
-                              {['peca','kg','m2','lugar','un','hora'].map(u => <option key={u} value={u}>{u}</option>)}
+                              {['peça','kg','m2','lugar','un','km','hora'].map(u => <option key={u} value={u}>{u}</option>)}
                             </select>
                           </div>
                           <div className="flex gap-2">
@@ -627,19 +644,44 @@ export default function OSList() {
                           <div className="text-xs text-yellow-700 mt-0.5 ml-1">Restante: R$ {brl(draftTotal - parseFloat(entryPayment.amount))}</div>
                         )}
                       </div>
-                      <div className="flex gap-1 flex-wrap">
-                        {ENTRY_METHODS.map(m => (
-                          <button key={m.value} type="button"
-                            onClick={() => setEntryPayment(p => ({ ...p, method: m.value }))}
-                            className={`px-2.5 py-2 rounded-lg text-xs font-medium border transition-colors ${
-                              entryPayment.method === m.value
-                                ? m.value === 'credito' ? 'bg-orange-500 text-white border-orange-500' : 'bg-green-600 text-white border-green-600'
-                                : m.value === 'credito' ? 'bg-white text-orange-500 border-orange-300' : 'bg-white text-gray-600 border-gray-200 hover:bg-green-50'
-                            }`}>
-                            {m.label}
-                          </button>
-                        ))}
+                      <div className="flex gap-2 items-start">
+                        <div className="flex items-center gap-1">
+                          <select className="w-40 border rounded-lg px-3 py-2 text-sm bg-white" value={entryPayment.method} onChange={e => setEntryPayment(p => ({ ...p, method: e.target.value }))}>
+                            {(methods.length>0 ? methods : [
+                              { value: 'dinheiro', label: 'Dinheiro' },
+                              { value: 'pix', label: 'Pix' },
+                              { value: 'debito', label: 'Débito' },
+                              { value: 'credito', label: 'Crédito' },
+                            ]).map(m => (
+                              <option key={m.value} value={m.value}>{m.label}</option>
+                            ))}
+                          </select>
+                          <button type="button" onClick={() => setShowNewMethod(v=>!v)} className="px-2 py-2 text-xs border rounded-md bg-white hover:bg-gray-50">+ </button>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <select className="w-48 border rounded-lg px-3 py-2 text-sm bg-white disabled:opacity-50" value={entryPayment.account_label} onChange={e => setEntryPayment(p => ({ ...p, account_label: e.target.value }))} disabled={entryPayment.method==='dinheiro'}>
+                            <option value="">Selecione a conta</option>
+                            {accounts.map(a => (
+                              <option key={a.id} value={a.label}>{a.label}</option>
+                            ))}
+                          </select>
+                          <button type="button" onClick={() => setShowNewAccount(v=>!v)} className="px-2 py-2 text-xs border rounded-md bg-white hover:bg-gray-50">+ </button>
+                        </div>
                       </div>
+                      {showNewMethod && (
+                        <div className="flex gap-2 items-center">
+                          <input className="w-40 border rounded-lg px-3 py-1.5 text-sm bg-white" placeholder="Nova forma (ex.: pix)" value={newMethodName} onChange={e=>setNewMethodName(e.target.value)} />
+                          <button type="button" onClick={async()=>{ if(!newMethodName.trim())return; try{ await window.api.paymentMethods.create({ name: newMethodName.trim().toLowerCase(), active:1}); const r=await window.api.paymentMethods.list(); setMethods((r||[]).filter(m=>m.active).map(m=>({value:m.name,label:m.name.charAt(0).toUpperCase()+m.name.slice(1)}))); setEntryPayment(p=>({ ...p, method: newMethodName.trim().toLowerCase() })); setNewMethodName(''); setShowNewMethod(false);} catch{} }} disabled={!newMethodName.trim()} className="px-2.5 py-1.5 text-xs bg-blue-600 text-white rounded-md disabled:opacity-40">Adicionar</button>
+                          <button type="button" onClick={()=>{setShowNewMethod(false);setNewMethodName('');}} className="px-2.5 py-1.5 text-xs border rounded-md bg-white">Cancelar</button>
+                        </div>
+                      )}
+                      {showNewAccount && (
+                        <div className="flex gap-2 items-center">
+                          <input className="w-48 border rounded-lg px-3 py-1.5 text-sm bg-white" placeholder="Nova conta (ex.: Caixa)" value={newAccountLabel} onChange={e=>setNewAccountLabel(e.target.value)} />
+                          <button type="button" onClick={async()=>{ if(!newAccountLabel.trim())return; try{ await window.api.bankAccounts.create({ label: newAccountLabel.trim() }); const r=await window.api.bankAccounts.list(); setAccounts(r||[]); setEntryPayment(p=>({ ...p, account_label: newAccountLabel.trim() })); setNewAccountLabel(''); setShowNewAccount(false);} catch{} }} disabled={!newAccountLabel.trim()} className="px-2.5 py-1.5 text-xs bg-blue-600 text-white rounded-md disabled:opacity-40">Adicionar</button>
+                          <button type="button" onClick={()=>{setShowNewAccount(false);setNewAccountLabel('');}} className="px-2.5 py-1.5 text-xs border rounded-md bg-white">Cancelar</button>
+                        </div>
+                      )}
                     </div>
                     <div className="text-xs text-gray-400">O pagamento será lançado automaticamente no caixa.</div>
                   </div>
@@ -647,7 +689,7 @@ export default function OSList() {
               </div>
 
               <div className="flex gap-2 justify-end pt-1">
-                <button type="button" onClick={() => { setShowForm(false); setDraftItems([]); setClientSearch(''); setEntryPayment({ enabled: false, amount: '', method: 'dinheiro' }); setForm({ client_id: '', status: 'aberta', note: '', order_date: today() }); }} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">Cancelar</button>
+                <button type="button" onClick={() => { setShowForm(false); setDraftItems([]); setClientSearch(''); setEntryPayment({ enabled: false, amount: '', method: 'dinheiro', account_label: '' }); setForm({ client_id: '', status: 'aberta', note: '', order_date: today() }); }} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">Cancelar</button>
                 <button type="button" onClick={handleCreate} disabled={!entryOk} title={!entryOk ? `Registre a entrada mínima de R$ ${brl(requiredEntry)}` : ''} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">Criar OS</button>
               </div>
             </div>

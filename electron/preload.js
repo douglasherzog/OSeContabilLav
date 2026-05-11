@@ -31,6 +31,20 @@ contextBridge.exposeInMainWorld('api', {
     deleteItem: (data) => ipcRenderer.invoke('os:delete_item', data),
     deletePayment: (data) => ipcRenderer.invoke('os:delete_payment', data),
   },
+  // Métodos de Pagamento
+  paymentMethods: {
+    list: () => ipcRenderer.invoke('payment_methods:list'),
+    create: (data) => ipcRenderer.invoke('payment_methods:create', data),
+    update: (data) => ipcRenderer.invoke('payment_methods:update', data),
+    delete: (data) => ipcRenderer.invoke('payment_methods:delete', data),
+  },
+  // Contas Bancárias
+  bankAccounts: {
+    list: () => ipcRenderer.invoke('bank_accounts:list'),
+    create: (data) => ipcRenderer.invoke('bank_accounts:create', data),
+    update: (data) => ipcRenderer.invoke('bank_accounts:update', data),
+    delete: (id) => ipcRenderer.invoke('bank_accounts:delete', id),
+  },
   // Caixa
   caixa: {
     list: (filters) => ipcRenderer.invoke('caixa:list', filters),
@@ -85,6 +99,10 @@ contextBridge.exposeInMainWorld('api', {
     delete: (id) => ipcRenderer.invoke('salary_advances:delete', id),
     balance: (filters) => ipcRenderer.invoke('salary_advances:balance', filters),
   },
+  payroll: {
+    previewClosing: (data) => ipcRenderer.invoke('payroll:closing:preview', data),
+    close: (data) => ipcRenderer.invoke('payroll:close', data),
+  },
   // Debug (apenas para testes)
   debug: {
     autoCloseMonth: () => ipcRenderer.invoke('debug:auto_close_month'),
@@ -101,6 +119,7 @@ contextBridge.exposeInMainWorld('api', {
   // Férias
   vacation: {
     balance: (employee_id) => ipcRenderer.invoke('vacation:balance', { employee_id }),
+    preview: (data) => ipcRenderer.invoke('vacation:preview', data),
     register: (data) => ipcRenderer.invoke('vacation:register', data),
   },
   // Décimo Terceiro
@@ -112,6 +131,8 @@ contextBridge.exposeInMainWorld('api', {
     path: () => ipcRenderer.invoke('db:path'),
     backup: () => ipcRenderer.invoke('db:backup'),
     cleanupDuplicates: () => ipcRenderer.invoke('db:cleanup_duplicates'),
+    repair: () => ipcRenderer.invoke('db:repair'),
+    normalizeUnits: () => ipcRenderer.invoke('db:normalize_units'),
   },
   dashboard: {
     summary: () => ipcRenderer.invoke('dashboard:summary'),

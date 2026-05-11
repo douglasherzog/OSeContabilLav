@@ -48,6 +48,11 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden">
+      {(window.__WEB_MODE__ || (window.api && window.api.__polyfill)) && (
+        <div className="fixed top-2 right-2 z-50 bg-amber-100 text-amber-900 text-xs px-2 py-1 rounded shadow border border-amber-200">
+          Modo Web (sem backend)
+        </div>
+      )}
       {/* Sidebar */}
       <aside className="w-56 bg-slate-800 text-white flex flex-col shrink-0">
         <div className="px-4 py-5 border-b border-slate-700">

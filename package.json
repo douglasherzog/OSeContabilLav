@@ -4,13 +4,19 @@
   "description": "OS e Contabilidade - Lavanderia Senhor dos Passos",
   "main": "electron/main.js",
   "scripts": {
-    "dev": "concurrently \"npm run dev:react\" \"wait-on http://localhost:3000 && electron .\"",
+    "dev": "concurrently \"npm run dev:react\" \"electron .\"",
     "dev:react": "vite",
     "build": "vite build && electron-builder",
     "preview": "vite preview",
-    "electron": "electron ."
+    "electron": "electron .",
+    "test": "node scripts/tests/run-tests.js",
+    "build:proddb": "node scripts/build-prod-db-from-csv.js --from exports --out prod.db",
+    "fetch:hetzner": "node scripts/fetch-hetzner-exports.js",
+    "provision:prod-db": "npm run fetch:hetzner && npm run build:proddb",
+    "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "better-sqlite3": "^9.4.0",
     "lucide-react": "^0.378.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

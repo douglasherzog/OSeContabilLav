@@ -4,6 +4,7 @@ import { HashRouter } from 'react-router-dom';
 import App from './App';
 import { ToastProvider } from './ToastContext';
 import './index.css';
+import './api-polyfill';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

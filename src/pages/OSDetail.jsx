@@ -26,7 +26,7 @@ export default function OSDetail() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({});
-  const [payForm, setPayForm] = useState({ amount: '', method: 'dinheiro', when_type: 'retirada', payment_date: today(), note: '' });
+  const [payForm, setPayForm] = useState({ amount: '', method: 'dinheiro', account_label: '', when_type: 'retirada', payment_date: today(), note: '' });
   const [itemForm, setItemForm] = useState({ description: '', quantity: '1', unit_price: '' });
   const [showPayForm, setShowPayForm] = useState(false);
   const [showItemForm, setShowItemForm] = useState(false);
@@ -36,6 +36,12 @@ export default function OSDetail() {
   const [showNewService, setShowNewService] = useState(false);
   const [newServiceForm, setNewServiceForm] = useState({ name: '', unit_price: '', unit: 'peca' });
   const [company, setCompany] = useState({});
+  const [methods, setMethods] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [showNewMethod, setShowNewMethod] = useState(false);
+  const [newMethodName, setNewMethodName] = useState('');
+  const [showNewAccount, setShowNewAccount] = useState(false);
+  const [newAccountLabel, setNewAccountLabel] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -54,6 +60,50 @@ export default function OSDetail() {
   useEffect(() => { load(); }, [id]);
   useEffect(() => { window.api.services.list(false).then(r => setCatalog(r || [])); }, []);
   useEffect(() => { window.api.company.get().then(d => setCompany(d || {})); }, []);
+  useEffect(() => { window.api.paymentMethods?.list?.().then(r => {
+    const list = (r||[]).filter(m => m.active).map(m => ({ value: m.name, label: m.name.charAt(0).toUpperCase()+m.name.slice(1) }));
+    setMethods(list);
+  }).catch(()=>setMethods([])); }, []);
+  useEffect(() => { window.api.bankAccounts?.list?.().then(r => setAccounts(r||[])).catch(()=>setAccounts([])); }, []);
+  // Sugerir conta quando método não é dinheiro
+  useEffect(() => {
+    if (payForm.method !== 'dinheiro') {
+      if (!payForm.account_label && accounts.length > 0) {
+        setPayForm(f => ({ ...f, account_label: accounts[0].label }));
+      }
+    } else {
+      setPayForm(f => ({ ...f, account_label: '' }));
+    }
+  }, [payForm.method, accounts]);
+
+  async function handleCreateMethod() {
+    const name = (newMethodName||'').trim().toLowerCase();
+    if (!name) return;
+    try {
+      await window.api.paymentMethods.create({ name, active: 1 });
+      const r = await window.api.paymentMethods.list();
+      const list = (r||[]).filter(m => m.active).map(m => ({ value: m.name, label: m.name.charAt(0).toUpperCase()+m.name.slice(1) }));
+      setMethods(list);
+      setPayForm(f => ({ ...f, method: name }));
+      setNewMethodName('');
+      setShowNewMethod(false);
+      toast.success('Forma de pagamento adicionada!');
+    } catch { toast.error('Erro ao adicionar forma de pagamento.'); }
+  }
+
+  async function handleCreateAccount() {
+    const label = (newAccountLabel||'').trim();
+    if (!label) return;
+    try {
+      await window.api.bankAccounts.create({ label });
+      const r = await window.api.bankAccounts.list();
+      setAccounts(r||[]);
+      setPayForm(f => ({ ...f, account_label: label }));
+      setNewAccountLabel('');
+      setShowNewAccount(false);
+      toast.success('Conta/banco adicionada!');
+    } catch { toast.error('Erro ao adicionar conta/banco.'); }
+  }
 
   async function handleQuickNewService() {
     try {
@@ -97,15 +147,17 @@ export default function OSDetail() {
   async function handleAddPayment() {
     try {
       const amt = parseFloat(payForm.amount);
-      await window.api.os.addPayment({
+      const res = await window.api.os.addPayment({
         order_id: parseInt(id),
         amount: amt,
         method: payForm.method,
+        account_label: payForm.account_label || '',
         when_type: payForm.when_type,
         payment_date: payForm.payment_date,
         note: payForm.note,
       });
-      setPayForm({ amount: '', method: 'dinheiro', when_type: 'retirada', payment_date: today(), note: '' });
+      if (res && res.error) { toast.error(res.error); return; }
+      setPayForm({ amount: '', method: 'dinheiro', account_label: '', when_type: 'retirada', payment_date: today(), note: '' });
       setShowPayForm(false);
       load();
       toast.success('Pagamento registrado e lançado no caixa!');
@@ -528,7 +580,7 @@ export default function OSDetail() {
                   <div className="flex gap-2">
                     <input type="number" className="flex-1 border rounded-lg px-3 py-1.5 text-sm" placeholder="Preço (R$)" value={newServiceForm.unit_price} onChange={e => setNewServiceForm(f => ({ ...f, unit_price: e.target.value }))} step="0.01" min="0" />
                     <select className="w-24 border rounded-lg px-2 py-1.5 text-sm" value={newServiceForm.unit} onChange={e => setNewServiceForm(f => ({ ...f, unit: e.target.value }))}>
-                      {['peca','kg','m2','lugar','un','hora'].map(u => <option key={u} value={u}>{u}</option>)}
+                      {['peça','kg','m2','lugar','un','km','hora'].map(u => <option key={u} value={u}>{u}</option>)}
                     </select>
                   </div>
                   <div className="flex gap-2">
@@ -648,23 +700,43 @@ export default function OSDetail() {
               )}
             </div>
 
-            {/* Valor + método */}
-            <div className="flex gap-2">
+            {/* Valor + método + conta */}
+            <div className="flex gap-2 items-start">
               <input type="number" className="flex-1 border rounded-lg px-3 py-2 text-sm bg-white" placeholder="Valor (R$) *" value={payForm.amount} onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))} required step="0.01" min="0.01" />
-              <div className="flex gap-1">
-                {METHODS.map(m => (
-                  <button key={m.value} type="button"
-                    onClick={() => setPayForm(f => ({ ...f, method: m.value }))}
-                    className={`px-2.5 py-2 rounded-lg text-xs font-medium border transition-colors ${
-                      payForm.method === m.value
-                        ? m.value === 'credito' ? 'bg-orange-500 text-white border-orange-500' : 'bg-green-600 text-white border-green-600'
-                        : m.value === 'credito' ? 'bg-white text-orange-500 border-orange-300 hover:bg-orange-50' : 'bg-white text-gray-600 border-gray-200 hover:bg-green-50'
-                    }`}>
-                    {m.label}
-                  </button>
+              <div className="flex items-center gap-1">
+              <select className="w-40 border rounded-lg px-3 py-2 text-sm bg-white" value={payForm.method} onChange={e => setPayForm(f => ({ ...f, method: e.target.value }))}>
+                {(methods.length>0 ? methods : METHODS).map(m => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
                 ))}
+              </select>
+              <button type="button" onClick={() => setShowNewMethod(v=>!v)} className="px-2 py-2 text-xs border rounded-md bg-white hover:bg-gray-50" title="Incluir forma de pagamento"><Plus size={14}/></button>
+              </div>
+              <div className="flex items-center gap-1">
+              <select className="w-48 border rounded-lg px-3 py-2 text-sm bg-white disabled:opacity-50" value={payForm.account_label} onChange={e => setPayForm(f => ({ ...f, account_label: e.target.value }))} disabled={payForm.method==='dinheiro'}>
+                <option value="">Selecione a conta</option>
+                {accounts.map(a => (
+                  <option key={a.id} value={a.label}>{a.label}</option>
+                ))}
+              </select>
+              <button type="button" onClick={() => setShowNewAccount(v=>!v)} className="px-2 py-2 text-xs border rounded-md bg-white hover:bg-gray-50" title="Incluir conta/banco"><Plus size={14}/></button>
               </div>
             </div>
+
+            {/* Inline novos cadastros */}
+            {showNewMethod && (
+              <div className="flex gap-2 items-center">
+                <input className="w-40 border rounded-lg px-3 py-1.5 text-sm bg-white" placeholder="Nova forma (ex.: pix)" value={newMethodName} onChange={e=>setNewMethodName(e.target.value)} />
+                <button type="button" onClick={handleCreateMethod} disabled={!newMethodName.trim()} className="px-2.5 py-1.5 text-xs bg-blue-600 text-white rounded-md disabled:opacity-40">Adicionar</button>
+                <button type="button" onClick={()=>{setShowNewMethod(false);setNewMethodName('');}} className="px-2.5 py-1.5 text-xs border rounded-md bg-white">Cancelar</button>
+              </div>
+            )}
+            {showNewAccount && (
+              <div className="flex gap-2 items-center">
+                <input className="w-48 border rounded-lg px-3 py-1.5 text-sm bg-white" placeholder="Nova conta (ex.: Caixa)" value={newAccountLabel} onChange={e=>setNewAccountLabel(e.target.value)} />
+                <button type="button" onClick={handleCreateAccount} disabled={!newAccountLabel.trim()} className="px-2.5 py-1.5 text-xs bg-blue-600 text-white rounded-md disabled:opacity-40">Adicionar</button>
+                <button type="button" onClick={()=>{setShowNewAccount(false);setNewAccountLabel('');}} className="px-2.5 py-1.5 text-xs border rounded-md bg-white">Cancelar</button>
+              </div>
+            )}
 
             {/* Momento + data */}
             <div className="flex gap-2">
@@ -685,7 +757,7 @@ export default function OSDetail() {
           <div className="text-sm text-gray-400 text-center py-4">Nenhum pagamento registrado.</div>
         ) : (
           <table className="w-full text-sm">
-            <thead><tr className="text-left text-gray-500 border-b text-xs"><th className="pb-2">Data</th><th className="pb-2">Método</th><th className="pb-2">Momento</th><th className="pb-2 text-right">Valor</th><th className="pb-2"></th></tr></thead>
+            <thead><tr className="text-left text-gray-500 border-b text-xs"><th className="pb-2">Data</th><th className="pb-2">Método</th><th className="pb-2">Conta/Banco</th><th className="pb-2">Momento</th><th className="pb-2 text-right">Valor</th><th className="pb-2"></th></tr></thead>
             <tbody>
               {order.payments.map(p => (
                 <tr key={p.id} className="border-b last:border-0 group text-sm">
@@ -696,8 +768,9 @@ export default function OSDetail() {
                       p.method === 'pix'      ? 'bg-blue-100 text-blue-700' :
                       p.method === 'debito'   ? 'bg-purple-100 text-purple-700' :
                       'bg-orange-100 text-orange-700'
-                    }`}>{METHODS.find(m => m.value === p.method)?.label || p.method}</span>
+                    }`}>{(methods.find(m => m.value === p.method)?.label) || (METHODS.find(m => m.value === p.method)?.label) || p.method}</span>
                   </td>
+                  <td className="py-2 text-gray-500">{p.account_label || '-'}</td>
                   <td className="py-2 text-gray-500 text-xs">{WHEN_TYPES.find(w => w.value === p.when_type)?.label || p.when_type}</td>
                   <td className="py-2 text-right font-medium text-green-600">R$ {brl(p.amount)}</td>
                   <td className="py-2 pl-2">

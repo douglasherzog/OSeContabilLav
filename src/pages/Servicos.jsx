@@ -6,7 +6,7 @@ import { brl, exportCSV, today } from '../utils';
 import { useToastCtx } from '../ToastContext';
 import { Download } from 'lucide-react';
 
-const UNITS = ['un', 'peca', 'peça', 'kg', 'm2', 'lugar', 'par', 'jogo', 'metro', 'hora'];
+const UNITS = ['un', 'peça', 'kg', 'm2', 'lugar', 'par', 'jogo', 'metro', 'km', 'hora'];
 const emptyForm = { name: '', description: '', category: 'geral', unit_price: '', unit: 'un', active: true, requires_entry: false, entry_pct: '50' };
 
 export default function Servicos() {
@@ -66,7 +66,8 @@ export default function Servicos() {
 
   function startEdit(s) {
     const price = s.unit_price != null ? parseFloat(s.unit_price.toFixed(2)) : '';
-    setForm({ name: s.name ?? '', description: s.description ?? '', category: s.category || 'geral', unit_price: price === '' ? '' : String(price), unit: s.unit || 'un', active: !!s.active, requires_entry: !!s.requires_entry, entry_pct: s.entry_pct != null ? String(s.entry_pct) : '50' });
+    const unit = s.unit === 'peca' ? 'peça' : (s.unit || 'un');
+    setForm({ name: s.name ?? '', description: s.description ?? '', category: s.category || 'geral', unit_price: price === '' ? '' : String(price), unit, active: !!s.active, requires_entry: !!s.requires_entry, entry_pct: s.entry_pct != null ? String(s.entry_pct) : '50' });
     setEditing(s.id);
     setShowForm(true);
   }

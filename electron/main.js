@@ -1,30 +1,73 @@
 ﻿const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const http = require("http");
+const https = require("https");
+const BetterSqlite3 = require("better-sqlite3");
 const { today, nowLocal, monthStart, monthEnd, monthStartFromStr, extractMonth, isInMonth } = require("./dateHelpers");
+const { computeVacationAmounts } = require("./calc/vacation");
 
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
-let db, SQL;
+// Parametrização do servidor de desenvolvimento (padrão porta 3000)
+const DEV_HOST = process.env.DEV_HOST || 'localhost';
+const DEV_PORT = process.env.PORT || process.env.DEV_PORT || '3000';
+const DEV_URL = process.env.DEV_URL || `http://${DEV_HOST}:${DEV_PORT}`;
+let db;
+
+const __appDataBase = app.getPath("appData");
+try { app.setName("OS e Contabil - Lav"); } catch(_) {}
+try { app.setPath("userData", path.join(__appDataBase, "OS e Contabil - Lav")); } catch(_) {}
+
+// Utilitário: reparar/criar schema e seeds idempotentes
+ipcMain.handle("db:repair", () => {
+  try {
+    createSchema();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+});
+
+// Normalizar unidades 'peca' -> 'peça' no catálogo de serviços
+ipcMain.handle("db:normalize_units", () => {
+  try {
+    const before = get("SELECT COUNT(1) as n FROM services WHERE unit='peca'")?.n || 0;
+    run("UPDATE services SET unit='peça' WHERE unit='peca'");
+    const after = get("SELECT COUNT(1) as n FROM services WHERE unit='peca'")?.n || 0;
+    return { ok: true, updated: before - after };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+});
 
 function getDbPath() {
   return path.join(app.getPath("userData"), "osecontabil.db");
 }
 
 async function initDb() {
-  const initSqlJs = require("sql.js"); const wasmPath = require("path").join(require("path").dirname(require.resolve("sql.js")), "sql-wasm.wasm"); SQL = await initSqlJs({ locateFile: () => wasmPath });
   const dbPath = getDbPath();
-  if (fs.existsSync(dbPath)) {
-    db = new SQL.Database(fs.readFileSync(dbPath));
-  } else {
-    db = new SQL.Database();
+  try { fs.mkdirSync(path.dirname(dbPath), { recursive: true }); } catch(_){ }
+  if (!fs.existsSync(dbPath)) {
+    const base = app.getPath("appData");
+    const cands = [
+      path.join(base, "osecontabillav", "osecontabil.db"),
+      path.join(base, "OSeContabilLav", "osecontabil.db"),
+    ];
+    for (const c of cands) {
+      try { if (fs.existsSync(c)) { fs.copyFileSync(c, dbPath); break; } } catch(_){ }
+    }
   }
+  // Abre/cria base SQLite em disco
+  db = new BetterSqlite3(dbPath);
+  // Configurações recomendadas para desktop
+  try { db.pragma('journal_mode = WAL'); } catch(_) {}
+  try { db.pragma('synchronous = NORMAL'); } catch(_) {}
   createSchema();
   // Seed categorias manuais padrão (após schema criado)
   const SYSTEM_CATS = ['aluguel','agua_luz','fornecedor','salario','material','transporte','outros'];
   for (const cat of SYSTEM_CATS) {
-    try { db.run("INSERT OR IGNORE INTO cash_categories (name,created_at) VALUES (?,?)", [cat, nowLocal()]); } catch(_){}
+    try { run("INSERT OR IGNORE INTO cash_categories (name,created_at) VALUES (?,?)", [cat, nowLocal()]); } catch(_){}
   }
-  saveDb();
   console.log("DB em:", dbPath);
   
   // Migrações simples de schema
@@ -40,6 +83,7 @@ async function initDb() {
     const empCols = all("PRAGMA table_info(employees)");
     const hasAdmission = Array.isArray(empCols) && empCols.some(c => String(c.name) === 'admission_date');
     const hasBase = Array.isArray(empCols) && empCols.some(c => String(c.name) === 'base_salary');
+    const hasVacStart = Array.isArray(empCols) && empCols.some(c => String(c.name) === 'vacation_accrual_start');
     if (!hasAdmission) {
       console.log('[migrate] Adicionando coluna admission_date em employees');
       run("ALTER TABLE employees ADD COLUMN admission_date TEXT", []);
@@ -47,6 +91,10 @@ async function initDb() {
     if (!hasBase) {
       console.log('[migrate] Adicionando coluna base_salary em employees');
       run("ALTER TABLE employees ADD COLUMN base_salary REAL DEFAULT 0", []);
+    }
+    if (!hasVacStart) {
+      console.log('[migrate] Adicionando coluna vacation_accrual_start em employees');
+      run("ALTER TABLE employees ADD COLUMN vacation_accrual_start TEXT", []);
     }
   } catch (e) {
     console.warn('[migrate] Falha ao verificar/aplicar migração salary_balance_pending.paid_amount:', e);
@@ -150,34 +198,87 @@ function getLastDayOfMonth(month) {
   return new Date(year, monthNum, 0).getDate();
 }
 
-function saveDb() {
-  fs.writeFileSync(getDbPath(), Buffer.from(db.export()));
-}
+function saveDb() { /* better-sqlite3 persiste automaticamente */ }
 
-function run(sql, params = []) { db.run(sql, params); saveDb(); }
+function run(sql, params = []) { db.prepare(sql).run(params); }
 
 function all(sql, params = []) {
-  try {
-    const stmt = db.prepare(sql);
-    stmt.bind(params);
-    const rows = [];
-    while (stmt.step()) rows.push(stmt.getAsObject());
-    stmt.free();
-    return rows;
-  } catch(e) { console.error("SQL error:", sql, e); return []; }
+  try { return db.prepare(sql).all(params); }
+  catch(e) { console.error("SQL error:", sql, e); return []; }
 }
 
-function get(sql, params = []) { return all(sql, params)[0] || null; }
+function get(sql, params = []) { try { return db.prepare(sql).get(params) || null; } catch(e){ console.error("SQL error:", sql, e); return null; } }
 
 function insert(sql, params = []) {
-  db.run(sql, params);
-  const r = get("SELECT last_insert_rowid() as id");
-  saveDb();
-  return r?.id;
+  try {
+    const info = db.prepare(sql).run(params);
+    return info?.lastInsertRowid;
+  } catch(e) {
+    console.error("SQL insert error:", sql, e);
+    return undefined;
+  }
+}
+
+const DEFAULT_PAYMENT_METHOD = 'dinheiro';
+function normalizeMethod(m) {
+  const v = (m||'').toString().trim().toLowerCase();
+  if (!v) return DEFAULT_PAYMENT_METHOD;
+  const row = get("SELECT name FROM payment_methods WHERE name=? AND active=1 LIMIT 1", [v]);
+  return row?.name || DEFAULT_PAYMENT_METHOD;
+}
+function defaultAccountFor(method, provided) {
+  if (provided && String(provided).trim()) return provided;
+  return method === 'dinheiro' ? 'Caixa' : '';
+}
+
+async function probeUrl(url, timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    try {
+      const isHttps = url.startsWith('https://');
+      const lib = isHttps ? https : http;
+      const req = lib.get(url, (res) => {
+        // Considera 2xx-4xx como "servidor respondeu" (vite responde 200)
+        if (res && res.statusCode && res.statusCode < 500) {
+          res.resume();
+          resolve(true);
+        } else {
+          resolve(false);
+        }
+      });
+      req.on('error', () => resolve(false));
+      req.setTimeout(timeoutMs, () => { try { req.destroy(); } catch(_){} resolve(false); });
+    } catch(_) { resolve(false); }
+  });
+}
+
+async function waitForDevServer() {
+  const baseHost = DEV_HOST || 'localhost';
+  const basePort = Number(DEV_PORT || 3000);
+  const candidates = [];
+  // Prioriza DEV_URL explícita
+  if (process.env.DEV_URL) candidates.push(process.env.DEV_URL);
+  // Em seguida a combinação base
+  candidates.push(`http://${baseHost}:${basePort}`);
+  // Tenta portas conhecidas 3000..3010
+  for (let p = 3000; p <= 3010; p++) {
+    const u = `http://${baseHost}:${p}`;
+    if (!candidates.includes(u)) candidates.push(u);
+  }
+  const startedAt = Date.now();
+  const maxWaitMs = 60000; // até 60s
+  while (Date.now() - startedAt < maxWaitMs) {
+    for (const u of candidates) {
+      const ok = await probeUrl(u);
+      if (ok) return u;
+    }
+    await new Promise(r => setTimeout(r, 500));
+  }
+  // Se nada responder, retorna DEV_URL mesmo assim
+  return DEV_URL;
 }
 
 function createSchema() {
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS clients (id INTEGER PRIMARY KEY AUTOINCREMENT, first_name TEXT NOT NULL, last_name TEXT NOT NULL, phone TEXT, email TEXT, address TEXT, created_at TEXT);
     CREATE TABLE IF NOT EXISTS service_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, number INTEGER UNIQUE, client_id INTEGER, title TEXT, status TEXT DEFAULT "aberta", total REAL DEFAULT 0, paid REAL DEFAULT 0, payment_status TEXT DEFAULT "em_aberto", note TEXT, assigned_to TEXT, expected_at TEXT, created_at TEXT, updated_at TEXT);
     CREATE TABLE IF NOT EXISTS os_items (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, description TEXT NOT NULL, quantity REAL DEFAULT 1, unit_price REAL DEFAULT 0, total REAL DEFAULT 0);
@@ -196,20 +297,23 @@ function createSchema() {
     CREATE TABLE IF NOT EXISTS thirteen_salary (id INTEGER PRIMARY KEY AUTOINCREMENT, employee_id INTEGER NOT NULL, year INTEGER NOT NULL, first_installment REAL DEFAULT 0, first_installment_paid_at TEXT, second_installment REAL DEFAULT 0, second_installment_paid_at TEXT, total REAL DEFAULT 0, created_at TEXT);
     CREATE TABLE IF NOT EXISTS salary_balance_pending (id INTEGER PRIMARY KEY AUTOINCREMENT, employee_id INTEGER NOT NULL, reference_month TEXT NOT NULL, amount REAL NOT NULL, paid_amount REAL DEFAULT 0, status TEXT DEFAULT 'pending', created_at TEXT);
     CREATE TABLE IF NOT EXISTS company_settings (key TEXT PRIMARY KEY, value TEXT);
+    CREATE TABLE IF NOT EXISTS payroll_closings (id INTEGER PRIMARY KEY AUTOINCREMENT, employee_id INTEGER NOT NULL, reference_month TEXT NOT NULL, net_amount REAL NOT NULL, advances_applied REAL NOT NULL, to_pay REAL NOT NULL, cash_ledger_id INTEGER, note TEXT, method TEXT, account_label TEXT, created_at TEXT, updated_at TEXT, UNIQUE(employee_id, reference_month));
   `);
-  try { db.run("ALTER TABLE service_orders ADD COLUMN expected_at TEXT"); } catch(_){}
-  try { db.run("ALTER TABLE services ADD COLUMN requires_entry INTEGER DEFAULT 0"); } catch(_){}
-  try { db.run("ALTER TABLE services ADD COLUMN entry_pct REAL DEFAULT 50"); } catch(_){}
-  try { db.run("ALTER TABLE os_items ADD COLUMN requires_entry INTEGER DEFAULT 0"); } catch(_){}
-  try { db.run("ALTER TABLE os_items ADD COLUMN entry_pct REAL DEFAULT 50"); } catch(_){}
-  try { db.run("ALTER TABLE salary_advances ADD COLUMN reference_month TEXT"); } catch(_){}
-  try { db.run("ALTER TABLE clients ADD COLUMN first_name TEXT NOT NULL DEFAULT ''"); } catch(_){}
-  try { db.run("ALTER TABLE clients ADD COLUMN last_name TEXT NOT NULL DEFAULT ''"); } catch(_){}
+  try { run("CREATE TABLE IF NOT EXISTS payment_methods (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, active INTEGER DEFAULT 1, created_at TEXT)"); } catch(_){ }
+  try { run("CREATE TABLE IF NOT EXISTS bank_accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT NOT NULL, bank_name TEXT, agency TEXT, account_number TEXT, active INTEGER DEFAULT 1, created_at TEXT)"); } catch(_){ }
+  try { run("ALTER TABLE service_orders ADD COLUMN expected_at TEXT"); } catch(_){}
+  try { run("ALTER TABLE services ADD COLUMN requires_entry INTEGER DEFAULT 0"); } catch(_){}
+  try { run("ALTER TABLE services ADD COLUMN entry_pct REAL DEFAULT 50"); } catch(_){}
+  try { run("ALTER TABLE os_items ADD COLUMN requires_entry INTEGER DEFAULT 0"); } catch(_){}
+  try { run("ALTER TABLE os_items ADD COLUMN entry_pct REAL DEFAULT 50"); } catch(_){}
+  try { run("ALTER TABLE salary_advances ADD COLUMN reference_month TEXT"); } catch(_){}
+  try { run("ALTER TABLE clients ADD COLUMN first_name TEXT NOT NULL DEFAULT ''"); } catch(_){}
+  try { run("ALTER TABLE clients ADD COLUMN last_name TEXT NOT NULL DEFAULT ''"); } catch(_){}
   // Adicionar campos para integração Caixa em Contas a Pagar/Receber
-  try { db.run("ALTER TABLE accounts_payable ADD COLUMN source_type TEXT DEFAULT 'ap'"); } catch(_){}
-  try { db.run("ALTER TABLE accounts_payable ADD COLUMN source_id INTEGER"); } catch(_){}
-  try { db.run("ALTER TABLE accounts_receivable ADD COLUMN source_type TEXT DEFAULT 'ar'"); } catch(_){}
-  try { db.run("ALTER TABLE accounts_receivable ADD COLUMN source_id INTEGER"); } catch(_){}
+  try { run("ALTER TABLE accounts_payable ADD COLUMN source_type TEXT DEFAULT 'ap'"); } catch(_){}
+  try { run("ALTER TABLE accounts_payable ADD COLUMN source_id INTEGER"); } catch(_){}
+  try { run("ALTER TABLE accounts_receivable ADD COLUMN source_type TEXT DEFAULT 'ar'"); } catch(_){}
+  try { run("ALTER TABLE accounts_receivable ADD COLUMN source_id INTEGER"); } catch(_){}
   // Seed dados da empresa (só insere se não existir)
   const companyDefaults = [
     ['name',       'Lavanderia Senhor dos Passos'],
@@ -227,6 +331,14 @@ function createSchema() {
   for (const [key, value] of companyDefaults) {
     run("INSERT OR IGNORE INTO company_settings (key, value) VALUES (?, ?)", [key, value]);
   }
+  try {
+    const pm = ['dinheiro','pix','boleto','transferência','débito','crédito'];
+    for (const name of pm) { insert("INSERT OR IGNORE INTO payment_methods (name, active, created_at) VALUES (?,?,?)", [name, 1, nowLocal()]); }
+  } catch(_){ }
+  try {
+    const hasCaixa = get("SELECT id FROM bank_accounts WHERE label=? LIMIT 1", ['Caixa']);
+    if (!hasCaixa) insert("INSERT INTO bank_accounts (label, bank_name, agency, account_number, active, created_at) VALUES (?,?,?,?,?,?)", ['Caixa','Caixa','', '', 1, nowLocal()]);
+  } catch(_){ }
   // Migration: adicionar coluna advance_type se não existir
   try {
     const hasColumn = all("PRAGMA table_info(salary_advances)").some(c => c.name === 'advance_type');
@@ -236,6 +348,10 @@ function createSchema() {
       console.log("[migration] coluna advance_type adicionada");
     }
   } catch (e) { console.error("[migration] erro ao adicionar advance_type:", e); }
+  try { run("ALTER TABLE os_payments ADD COLUMN account_label TEXT"); } catch(_){ }
+  try { run("UPDATE cash_ledger SET method='dinheiro' WHERE method IS NULL OR TRIM(method)=''"); } catch(_){ }
+  try { run("UPDATE accounts_payable SET method=COALESCE(NULLIF(TRIM(method),''),'dinheiro')"); } catch(_){ }
+  try { run("UPDATE accounts_receivable SET method=COALESCE(NULLIF(TRIM(method),''),'dinheiro')"); } catch(_){ }
 
   // Migration retroativa: lançar no caixa os pagamentos de OS que ainda não têm lançamento
   try {
@@ -413,18 +529,24 @@ ipcMain.handle("os:delete", (_, id) => {
   return {ok:true};
 });
 ipcMain.handle("os:add_payment", (_, d) => {
-  const payment_id = insert("INSERT INTO os_payments (order_id,amount,method,when_type,payment_date,note) VALUES (?,?,?,?,?,?)", [d.order_id,d.amount,d.method||"dinheiro",d.when_type||"retirada",d.payment_date||null,d.note||null]);
+  const m = normalizeMethod(d.method);
+  const acc = defaultAccountFor(m, d.account_label||'');
+  if (m !== 'dinheiro' && !String(acc).trim()) { return { error: 'Selecione uma conta/banco quando o método de pagamento não for dinheiro.' }; }
+  const payment_id = insert("INSERT INTO os_payments (order_id,amount,method,account_label,when_type,payment_date,note) VALUES (?,?,?,?,?,?,?)", [d.order_id,d.amount,m,acc,d.when_type||"retirada",d.payment_date||null,d.note||null]);
   const paid = get("SELECT COALESCE(SUM(amount),0) as s FROM os_payments WHERE order_id=?", [d.order_id])?.s||0;
   const o = get("SELECT so.*,c.name as client_name FROM service_orders so LEFT JOIN clients c ON c.id=so.client_id WHERE so.id=?", [d.order_id]);
   const rem = Math.max(0,(o?.total||0)-paid);
   run("UPDATE service_orders SET paid=?,payment_status=? WHERE id=?", [paid, rem<=0.01?"quitado":"em_aberto", d.order_id]);
   const desc = `OS #${o?.number||d.order_id} — ${o?.client_name||'cliente'}`;
   const occurredAt = (d.payment_date||nowLocal().slice(0,10)) + ' ' + nowLocal().slice(11,16);
-  insert("INSERT INTO cash_ledger (occurred_at,amount,method,category,description,source_type,source_id,created_at) VALUES (?,?,?,?,?,?,?,?)", [occurredAt,d.amount,d.method||"dinheiro","os_pagamento",desc,"os",payment_id,nowLocal()]);
+  insert("INSERT INTO cash_ledger (occurred_at,amount,method,account_label,category,description,source_type,source_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)", [occurredAt,d.amount,m,acc,"os_pagamento",desc,"os",payment_id,nowLocal()]);
   return {ok:true};
 });
 ipcMain.handle("os:update_payment", (_, d) => {
-  run("UPDATE os_payments SET amount=?,method=?,when_type=?,payment_date=?,note=? WHERE id=?", [d.amount,d.method||"dinheiro",d.when_type||"retirada",d.payment_date||null,d.note||null,d.payment_id]);
+  const m = normalizeMethod(d.method);
+  const acc = defaultAccountFor(m, d.account_label||'');
+  if (m !== 'dinheiro' && !String(acc).trim()) { return { error: 'Selecione uma conta/banco quando o método de pagamento não for dinheiro.' }; }
+  run("UPDATE os_payments SET amount=?,method=?,account_label=?,when_type=?,payment_date=?,note=? WHERE id=?", [d.amount,m,acc,d.when_type||"retirada",d.payment_date||null,d.note||null,d.payment_id]);
   const order_id = get("SELECT order_id FROM os_payments WHERE id=?", [d.payment_id])?.order_id;
   if (order_id) {
     const paid = get("SELECT COALESCE(SUM(amount),0) as s FROM os_payments WHERE order_id=?", [order_id])?.s||0;
@@ -433,7 +555,7 @@ ipcMain.handle("os:update_payment", (_, d) => {
     run("UPDATE service_orders SET paid=?,payment_status=? WHERE id=?", [paid, rem<=0.01?"quitado":"em_aberto", order_id]);
   }
   const occurredAt = (d.payment_date||nowLocal().slice(0,10)) + ' ' + nowLocal().slice(11,16);
-  run("UPDATE cash_ledger SET occurred_at=?,amount=?,method=?,description=? WHERE source_type='os' AND source_id=?", [occurredAt,d.amount,d.method||"dinheiro",d.description||null,d.payment_id]);
+  run("UPDATE cash_ledger SET occurred_at=?,amount=?,method=?,account_label=?,description=? WHERE source_type='os' AND source_id=?", [occurredAt,d.amount,m,acc,d.description||null,d.payment_id]);
   return {ok:true};
 });
 ipcMain.handle("os:add_item", (_, d) => {
@@ -506,8 +628,8 @@ ipcMain.handle("ar:categories:delete", (_, name) => {
   run("DELETE FROM ar_categories WHERE name=?", [name]);
   return {ok:true};
 });
-ipcMain.handle("caixa:create", (_, d) => { const id=insert("INSERT INTO cash_ledger (occurred_at,amount,method,account_label,category,description,source_type) VALUES (?,?,?,?,?,?,?)",[d.occurred_at,d.amount,d.method||"dinheiro",d.account_label||null,d.category||"manual",d.description||null,"manual"]); return get("SELECT * FROM cash_ledger WHERE id=?",[id]); });
-ipcMain.handle("caixa:update", (_, {id,...d}) => { run("UPDATE cash_ledger SET occurred_at=?,amount=?,method=?,account_label=?,category=?,description=? WHERE id=?",[d.occurred_at,d.amount,d.method,d.account_label||null,d.category,d.description||null,id]); return get("SELECT * FROM cash_ledger WHERE id=?",[id]); });
+ipcMain.handle("caixa:create", (_, d) => { const m=normalizeMethod(d.method); const acc=defaultAccountFor(m,d.account_label||null); if(m!=="dinheiro" && !String(acc).trim()){ return {error:'Selecione uma conta/banco quando o método de pagamento não for dinheiro.'}; } const id=insert("INSERT INTO cash_ledger (occurred_at,amount,method,account_label,category,description,source_type) VALUES (?,?,?,?,?,?,?)",[d.occurred_at,d.amount,m,acc,d.category||"manual",d.description||null,"manual"]); return get("SELECT * FROM cash_ledger WHERE id=?",[id]); });
+ipcMain.handle("caixa:update", (_, {id,...d}) => { const m=normalizeMethod(d.method); const acc=defaultAccountFor(m,d.account_label||null); if(m!=="dinheiro" && !String(acc).trim()){ return {error:'Selecione uma conta/banco quando o método de pagamento não for dinheiro.'}; } run("UPDATE cash_ledger SET occurred_at=?,amount=?,method=?,account_label=?,category=?,description=? WHERE id=?",[d.occurred_at,d.amount,m,acc,d.category,d.description||null,id]); return get("SELECT * FROM cash_ledger WHERE id=?",[id]); });
 ipcMain.handle("caixa:delete", (_, id) => { run("DELETE FROM cash_ledger WHERE id=?",[id]); return {ok:true}; });
 
 ipcMain.handle("ap:list", (_, f={}) => { let sql="SELECT * FROM accounts_payable WHERE 1=1"; const p=[]; if(f.status){sql+=" AND status=?";p.push(f.status);} if(f.date_from){sql+=" AND due_date>=?";p.push(f.date_from);} if(f.date_to){sql+=" AND due_date<=?";p.push(f.date_to);} sql+=" ORDER BY due_date ASC,id DESC"; return all(sql,p); });
@@ -532,11 +654,16 @@ ipcMain.handle("ap:update", (_, {id,...d}) => {
       const [hours, minutes] = timePart.split(':');
       occurredAt = `${year}-${month}-${day}T${hours}:${minutes}`;
     }
+    const m = normalizeMethod(d.method);
+    const acc = defaultAccountFor(m, d.account_label || '');
+    if (m !== 'dinheiro' && !String(acc).trim()) {
+      return { error: 'Selecione uma conta/banco quando o método de pagamento não for dinheiro.' };
+    }
     cashId = insert("INSERT INTO cash_ledger (occurred_at,amount,method,account_label,category,description,source_type,source_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)", [
       occurredAt,
       -(d.amount || 0),
-      d.method || 'dinheiro',
-      d.account_label || '',
+      m,
+      acc,
       d.category || 'contas',
       `Conta: ${d.description}`,
       'ap',
@@ -554,7 +681,9 @@ ipcMain.handle("ap:update", (_, {id,...d}) => {
     run("UPDATE accounts_payable SET source_type='ap', source_id=NULL WHERE id=?",[id]);
     saveDb();
   }
-  run("UPDATE accounts_payable SET description=?,category=?,amount=?,due_date=?,note=?,status=?,paid_at=?,method=?,account_label=? WHERE id=?",[d.description,d.category,d.amount,d.due_date||null,d.note||null,d.status,d.paid_at||null,d.method||null,d.account_label||null,id]);
+  const updMethod = d.method != null ? normalizeMethod(d.method) : (old?.method || null);
+  const updAccount = defaultAccountFor(updMethod || 'dinheiro', (d.account_label != null ? d.account_label : (old?.account_label || '')));
+  run("UPDATE accounts_payable SET description=?,category=?,amount=?,due_date=?,note=?,status=?,paid_at=?,method=?,account_label=? WHERE id=?",[d.description,d.category,d.amount,d.due_date||null,d.note||null,d.status,d.paid_at||null,updMethod,updAccount,id]);
   saveDb();
   return get("SELECT * FROM accounts_payable WHERE id=?",[id]);
 });
@@ -581,11 +710,16 @@ ipcMain.handle("ar:update", (_, {id,...d}) => {
       const [hours, minutes] = timePart.split(':');
       occurredAt = `${year}-${month}-${day}T${hours}:${minutes}`;
     }
+    const m = normalizeMethod(d.method);
+    const acc = defaultAccountFor(m, d.account_label || '');
+    if (m !== 'dinheiro' && !String(acc).trim()) {
+      return { error: 'Selecione uma conta/banco quando o método de pagamento não for dinheiro.' };
+    }
     const cashId = insert("INSERT INTO cash_ledger (occurred_at,amount,method,account_label,category,description,source_type,source_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)", [
       occurredAt,
       d.amount || 0, // valor positivo (entrada)
-      d.method || 'dinheiro',
-      d.account_label || '',
+      m,
+      acc,
       d.category || 'contas',
       `Recebimento: ${d.description}`,
       'ar',
@@ -603,7 +737,9 @@ ipcMain.handle("ar:update", (_, {id,...d}) => {
     run("UPDATE accounts_receivable SET source_type='ar', source_id=NULL WHERE id=?",[id]);
     saveDb();
   }
-  run("UPDATE accounts_receivable SET description=?,category=?,amount=?,due_date=?,note=?,status=?,received_at=?,method=?,account_label=? WHERE id=?",[d.description,d.category,d.amount,d.due_date||null,d.note||null,d.status,d.received_at||null,d.method||null,d.account_label||null,id]);
+  const updMethod2 = d.method != null ? normalizeMethod(d.method) : (old?.method || null);
+  const updAccount2 = defaultAccountFor(updMethod2 || 'dinheiro', (d.account_label != null ? d.account_label : (old?.account_label || '')));
+  run("UPDATE accounts_receivable SET description=?,category=?,amount=?,due_date=?,note=?,status=?,received_at=?,method=?,account_label=? WHERE id=?",[d.description,d.category,d.amount,d.due_date||null,d.note||null,d.status,d.received_at||null,updMethod2,updAccount2,id]);
   saveDb();
   return get("SELECT * FROM accounts_receivable WHERE id=?",[id]);
 });
@@ -780,10 +916,11 @@ ipcMain.handle("employees:list", () => {
 ipcMain.handle("employees:create", (_, d) => {
   // Garantir que admission_date seja armazenada como data (YYYY-MM-DD)
   const admission = d.admission_date ? String(d.admission_date).slice(0,10) : null;
+  const vacStart = d.vacation_accrual_start ? String(d.vacation_accrual_start).slice(0,10) : null;
   const base = d.base_salary || 0;
   const id = insert(
-    "INSERT INTO employees (name,type,active,admission_date,base_salary,created_at) VALUES (?,?,?,?,?,?)",
-    [d.name, d.type||'integral', 1, admission, base, nowLocal()]
+    "INSERT INTO employees (name,type,active,admission_date,vacation_accrual_start,base_salary,created_at) VALUES (?,?,?,?,?,?,?)",
+    [d.name, d.type||'integral', 1, admission, vacStart, base, nowLocal()]
   );
   // Criar primeiro registro de salário (histórico)
   if (base > 0) {
@@ -803,10 +940,10 @@ ipcMain.handle("employees:update", (_, {id,...d}) => {
   const currentEmp = get("SELECT * FROM employees WHERE id=?",[id]);
   if (!currentEmp) return {error:'Funcionário não encontrado'};
   
-  // Tentar atualizar admission_date se fornecido, ignorar erro se coluna não existir
+  // Tentar atualizar admission_date e vacation_accrual_start se fornecidos, ignorar erro se coluna não existir
   try {
-    run("UPDATE employees SET name=?,type=?,active=?,base_salary=?,admission_date=? WHERE id=?",
-      [d.name, d.type, d.active !== undefined ? d.active : currentEmp.active, d.base_salary !== undefined ? d.base_salary : currentEmp.base_salary, d.admission_date || currentEmp.admission_date, id]);
+    run("UPDATE employees SET name=?,type=?,active=?,base_salary=?,admission_date=?, vacation_accrual_start=? WHERE id=?",
+      [d.name, d.type, d.active !== undefined ? d.active : currentEmp.active, d.base_salary !== undefined ? d.base_salary : currentEmp.base_salary, d.admission_date || currentEmp.admission_date, d.vacation_accrual_start || currentEmp.vacation_accrual_start, id]);
   } catch (e) {
     // Se falhar por coluna não existir, tentar sem admission_date
     run("UPDATE employees SET name=?,type=?,active=?,base_salary=? WHERE id=?",
@@ -940,11 +1077,16 @@ ipcMain.handle("salary_advances:create", (_, d) => {
   // Criar lançamento no caixa automaticamente (ocorre hoje)
   const typeLabel = { 'regular': 'Adiantamento', 'ferias': 'Férias', 'decimo_primeira': 'Décimo 1ª', 'decimo_segunda': 'Décimo 2ª' };
   const desc = `${typeLabel[d.advance_type] || 'Adiantamento'}: ${d.employee_name}`;
+  const m = normalizeMethod(d.method);
+  const acc = defaultAccountFor(m, d.account_label || '');
+  if (m !== 'dinheiro' && !String(acc).trim()) {
+    return { error: 'Selecione uma conta/banco quando o método de pagamento não for dinheiro.' };
+  }
   const cashId = insert("INSERT INTO cash_ledger (occurred_at,amount,method,account_label,category,description,source_type,source_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)", [
     effectiveDate + 'T12:00:00',
     -(d.amount || 0),
-    d.method || 'dinheiro',
-    d.account_label || '',
+    m,
+    acc,
     d.advance_type === 'ferias' ? 'ferias' : d.advance_type?.startsWith('decimo') ? 'decimo_terceiro' : 'adiantamento_salario',
     desc,
     'salary_advance',
@@ -1001,13 +1143,110 @@ ipcMain.handle("salary_advances:balance", (_, {employee_id, month}) => {
   };
 });
 
+// Fechamento da Folha: prévia
+ipcMain.handle("payroll:closing:preview", (_, { employee_id, month, net_amount }) => {
+  if (!employee_id || !month) return { error: 'employee_id e month são obrigatórios' };
+  const emp = get("SELECT id, name FROM employees WHERE id=?", [employee_id]);
+  if (!emp) return { error: 'Funcionário não encontrado' };
+  const net = parseFloat(net_amount) || 0;
+  const regularAdvances = get("SELECT COALESCE(SUM(amount),0) as total FROM salary_advances WHERE employee_id=? AND (reference_month=? OR (reference_month IS NULL AND strftime('%Y-%m', date)=?)) AND (advance_type='regular' OR advance_type IS NULL)", [employee_id, month, month])?.total || 0;
+  const toPay = Math.max(0, +(net - regularAdvances).toFixed(2));
+  return { employee: emp, month, net_amount: +net.toFixed(2), advances_applied: +regularAdvances.toFixed(2), to_pay: toPay };
+});
+
+// Fechamento da Folha: efetivar (idempotente por funcionário+mês)
+ipcMain.handle("payroll:close", (_, d) => {
+  const { employee_id, month, net_amount, method, account_label, note } = d || {};
+  if (!employee_id || !month) return { error: 'employee_id e month são obrigatórios' };
+  const emp = get("SELECT id, name FROM employees WHERE id=?", [employee_id]);
+  if (!emp) return { error: 'Funcionário não encontrado' };
+  const prev = get("SELECT * FROM payroll_closings WHERE employee_id=? AND reference_month=?", [employee_id, month]);
+
+  const preview = ipcMain._events && ipcMain._events["payroll:closing:preview"]
+    ? { ...(ipcMain.listeners? {} : {}), ...{} } // no-op to satisfy linter
+    : null;
+  const regularAdvances = get("SELECT COALESCE(SUM(amount),0) as total FROM salary_advances WHERE employee_id=? AND (reference_month=? OR (reference_month IS NULL AND strftime('%Y-%m', date)=?)) AND (advance_type='regular' OR advance_type IS NULL)", [employee_id, month, month])?.total || 0;
+  const net = parseFloat(net_amount) || 0;
+  const toPay = Math.max(0, +(net - regularAdvances).toFixed(2));
+
+  const occurredAt = today() + 'T12:00:00';
+  const desc = `Fechamento Folha ${month}: ${emp.name} (líquido - adiantamentos)`;
+
+  let cashId = prev?.cash_ledger_id || null;
+  const m = normalizeMethod(method);
+  const acc = defaultAccountFor(m, account_label || '');
+  if (m !== 'dinheiro' && !String(acc).trim()) {
+    return { error: 'Selecione uma conta/banco quando o método de pagamento não for dinheiro.' };
+  }
+  if (cashId) {
+    // Atualizar lançamento anterior
+    run("UPDATE cash_ledger SET occurred_at=?, amount=?, method=?, account_label=?, category=?, description=?, source_type=?, created_at=? WHERE id=?", [
+      occurredAt,
+      -toPay,
+      m,
+      acc,
+      'folha_pagamento',
+      desc,
+      'payroll_closing',
+      nowLocal(),
+      cashId
+    ]);
+  } else {
+    // Inserir novo lançamento
+    cashId = insert("INSERT INTO cash_ledger (occurred_at,amount,method,account_label,category,description,source_type,source_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)", [
+      occurredAt,
+      -toPay,
+      m,
+      acc,
+      'folha_pagamento',
+      desc,
+      'payroll_closing',
+      0,
+      nowLocal()
+    ]);
+  }
+
+  const nowStr = nowLocal();
+  if (prev?.id) {
+    run("UPDATE payroll_closings SET net_amount=?, advances_applied=?, to_pay=?, cash_ledger_id=?, note=?, method=?, account_label=?, updated_at=? WHERE id=?", [
+      net,
+      regularAdvances,
+      toPay,
+      cashId,
+      note || null,
+      m,
+      acc,
+      nowStr,
+      prev.id
+    ]);
+  } else {
+    insert("INSERT INTO payroll_closings (employee_id,reference_month,net_amount,advances_applied,to_pay,cash_ledger_id,note,method,account_label,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)", [
+      employee_id,
+      month,
+      net,
+      regularAdvances,
+      toPay,
+      cashId,
+      note || null,
+      m,
+      acc,
+      nowStr,
+      nowStr
+    ]);
+  }
+  saveDb();
+  return { ok: true, employee: emp, month, net_amount: +net.toFixed(2), advances_applied: +regularAdvances.toFixed(2), to_pay: toPay, cash_ledger_id: cashId };
+});
+
 // Férias - calcular saldo disponível
 ipcMain.handle("vacation:balance", (_, {employee_id}) => {
   const emp = get("SELECT * FROM employees WHERE id=?",[employee_id]);
-  if (!emp || !emp.admission_date) return {error:'Funcionário sem data de admissão'};
+  if (!emp) return {error:'Funcionário não encontrado'};
+  const accrualStartStr = emp.vacation_accrual_start || emp.admission_date;
+  if (!accrualStartStr) return {error:'Defina data de admissão ou início do contador de férias'};
   
-  // Calcular períodos aquisitivos completos
-  const admission = new Date(emp.admission_date);
+  // Calcular períodos aquisitivos completos (a partir de vacation_accrual_start se existir)
+  const admission = new Date(accrualStartStr);
   const today = new Date();
   const yearsWorked = Math.floor((today - admission) / (365.25 * 24 * 60 * 60 * 1000));
   
@@ -1033,85 +1272,144 @@ ipcMain.handle("vacation:balance", (_, {employee_id}) => {
   };
 });
 
+// Prévia de férias (sem gravar): calcula Base (dias/30), 1/3 e Total com salário vigente no início
+ipcMain.handle("vacation:preview", (_, d) => {
+  if (!d?.employee_id || !d?.period_start || !d?.period_end) return { error: 'Parâmetros obrigatórios faltando' };
+  const salaryAtStart = getSalaryAtDate(d.employee_id, d.period_start) || 0;
+  try {
+    const r = computeVacationAmounts(d.period_start, d.period_end, salaryAtStart, d.include_one_third !== false);
+    const reference_month = (d.period_start || today()).slice(0,7);
+    return { ...r, salary_at_start: salaryAtStart, reference_month };
+  } catch (e) {
+    return { error: String(e.message || e) };
+  }
+});
+
+// Registrar férias: calcula Base (pro rata por dias) e 1/3, lança 1 movimento no caixa e 1 registro em salary_advances (tipo 'ferias').
 ipcMain.handle("vacation:register", (_, d) => {
-  // Registrar período de férias tiradas
-  const id = insert("INSERT INTO vacation_records (employee_id,period_start,period_end,days_taken,buyout_days,notes,created_at) VALUES (?,?,?,?,?,?,?)", 
-    [d.employee_id, d.period_start, d.period_end, d.days_taken||0, d.buyout_days||0, d.notes||null, nowLocal()]);
+  const emp = get("SELECT * FROM employees WHERE id=?", [d.employee_id]);
+  if (!emp) return { error: 'Funcionário não encontrado' };
+  if (!d.period_start || !d.period_end) return { error: 'Informe período de férias (início e fim).' };
+
+  // Cálculo de dias (inclusivo)
+  const start = new Date(d.period_start);
+  const end = new Date(d.period_end);
+  if (!(start instanceof Date) || isNaN(start) || !(end instanceof Date) || isNaN(end) || end < start) {
+    return { error: 'Período de férias inválido.' };
+  }
+  const msPerDay = 24*60*60*1000;
+  const days = Math.floor((end - start) / msPerDay) + 1;
+
+  // Salário vigente no início do período e cálculo com função compartilhada
+  const salaryAtStart = getSalaryAtDate(d.employee_id, d.period_start) || 0;
+  const calc = computeVacationAmounts(d.period_start, d.period_end, salaryAtStart, d.include_one_third !== false);
+  const baseAmount = calc.base;
+  const oneThird = calc.one_third;
+  const total = calc.total;
+
+  const effectiveDate = today();
+  const referenceMonth = (d.reference_month && d.reference_month.length === 7)
+    ? d.reference_month
+    : (d.period_start || effectiveDate).slice(0,7);
+
+  // Lançamento no caixa (total)
+  const desc = `Férias: ${emp.name || ('Funcionário #' + d.employee_id)}`;
+  const m = normalizeMethod(d.method);
+  const acc = defaultAccountFor(m, d.account_label || '');
+  if (m !== 'dinheiro' && !String(acc).trim()) {
+    return { error: 'Selecione uma conta/banco quando o método de pagamento não for dinheiro.' };
+  }
+  const cashId = insert("INSERT INTO cash_ledger (occurred_at,amount,method,account_label,category,description,source_type,source_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+    [effectiveDate + 'T12:00:00', -total, m, acc, 'ferias', desc, 'salary_advance', 0, nowLocal()]
+  );
+
+  // Registro resumido em salary_advances (não consome teto do mês no saldo atual)
+  const note = `Férias ${d.period_start} a ${d.period_end} — Base R$ ${baseAmount.toFixed(2)}${oneThird>0?`, 1/3 R$ ${oneThird.toFixed(2)}`:''}`;
+  const advId = insert(
+    "INSERT INTO salary_advances (employee_id,advance_type,amount,date,note,source_id,reference_month,created_at) VALUES (?,?,?,?,?,?,?,?)",
+    [d.employee_id, 'ferias', total, effectiveDate, note, cashId, referenceMonth, nowLocal()]
+  );
+
+  // Registrar no histórico de férias
+  insert("INSERT INTO vacation_records (employee_id, period_start, period_end, days_taken, buyout_days, notes, created_at) VALUES (?,?,?,?,?,?,?)",
+    [d.employee_id, d.period_start, d.period_end, days, d.buyout_days || 0, d.notes || null, nowLocal()]
+  );
+
   saveDb();
-  return get("SELECT * FROM vacation_records WHERE id=?",[id]);
+  return { id: advId, amount: total, base_amount: baseAmount, one_third: oneThird, reference_month: referenceMonth };
 });
 
-// Décimo Terceiro
-ipcMain.handle("thirteenth:calculate", (_, {employee_id, year}) => {
-  const emp = get("SELECT * FROM employees WHERE id=?",[employee_id]);
-  if (!emp || !emp.admission_date) return {error:'Funcionário sem data de admissão'};
-  
-  // Calcular valor proporcional do décimo terceiro
-  const admission = new Date(emp.admission_date);
-  const yearStart = new Date(`${year}-01-01`);
-  const yearEnd = new Date(`${year}-12-31`);
-  
-  let monthsWorked = 12;
-  if (admission > yearStart) {
-    // Se entrou no meio do ano, calcular meses proporcionais
-    monthsWorked = Math.max(0, 12 - admission.getMonth() - 1);
+// Cálculo do 13º: acumula 1/12 por mês trabalhado (>15 dias) com salário vigente no fim do mês
+ipcMain.handle("thirteenth:calculate", (_, { employee_id, year }) => {
+  const emp = get("SELECT * FROM employees WHERE id=?", [employee_id]);
+  if (!emp) return { error: 'Funcionário não encontrado' };
+  const y = year || new Date().getFullYear();
+  const isCurrentYear = y === new Date().getFullYear();
+  const lastMonth = isCurrentYear ? (new Date().getMonth() + 1) : 12; // 1..12
+
+  // Data de admissão
+  const admission = emp.admission_date ? new Date(emp.admission_date) : null;
+
+  let accrued = 0;
+  for (let m = 1; m <= lastMonth; m++) {
+    const monthStr = `${y}-${String(m).padStart(2,'0')}`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const refDate = `${monthStr}-${String(lastDay).padStart(2,'0')}`;
+
+    // Regra dos >15 dias trabalhados no mês
+    let eligible = true;
+    if (admission) {
+      const monthStart = new Date(y, m-1, 1);
+      const monthEnd = new Date(y, m-1, lastDay);
+      if (admission > monthEnd) eligible = false; // ainda não admitido
+      else if (admission >= monthStart && admission <= monthEnd) {
+        // Contar dias trabalhados no mês
+        const workedDays = (monthEnd - admission) / (24*60*60*1000) + 1;
+        if (workedDays <= 15.0) eligible = false;
+      }
+    }
+    if (!eligible) continue;
+
+    const sal = getSalaryAtDate(employee_id, refDate) || 0;
+    accrued += sal / 12.0;
   }
-  
-  const currentSalary = getCurrentSalary(employee_id);
-  const totalThirteenth = (currentSalary / 12) * monthsWorked;
-  const firstInstallment = totalThirteenth / 2;
-  const secondInstallment = totalThirteenth / 2;
-  
-  // Verificar se já existe registro para este ano
-  let record = get("SELECT * FROM thirteen_salary WHERE employee_id=? AND year=?", [employee_id, year]);
-  if (!record) {
-    const id = insert("INSERT INTO thirteen_salary (employee_id,year,total,created_at) VALUES (?,?,?,?)", 
-      [employee_id, year, totalThirteenth, nowLocal()]);
-    record = get("SELECT * FROM thirteen_salary WHERE id=?",[id]);
-    saveDb();
-  }
-  
-  return {
-    employee: emp,
-    year: year,
-    months_worked: monthsWorked,
-    current_salary: currentSalary,
-    total: totalThirteenth,
-    first_installment: firstInstallment,
-    second_installment: secondInstallment,
-    record: record
-  };
+
+  // Total já pago no ano (parcelas com advance_type LIKE 'decimo%')
+  const paidRow = get(
+    "SELECT COALESCE(SUM(amount),0) AS paid FROM salary_advances WHERE employee_id=? AND (strftime('%Y', date)=? OR substr(COALESCE(reference_month,''),1,4)=?) AND advance_type LIKE 'decimo%'",
+    [employee_id, String(y), String(y)]
+  );
+  const paid = paidRow?.paid || 0;
+  const remaining = Math.max(0, +(accrued - paid).toFixed(2));
+  return { employee: { id: emp.id, name: emp.name }, year: y, accrued: +accrued.toFixed(2), paid: +paid.toFixed(2), remaining };
 });
 
-ipcMain.handle("thirteenth:pay", (_, {employee_id, year, installment, amount, paid_at}) => {
-  const field = installment === 1 ? 'first_installment' : 'second_installment';
-  const dateField = installment === 1 ? 'first_installment_paid_at' : 'second_installment_paid_at';
-  
-  // Criar lançamento no caixa
-  const cashId = insert("INSERT INTO cash_ledger (occurred_at,amount,method,account_label,category,description,source_type,source_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)", [
-    (paid_at || nowLocal().slice(0,10)) + 'T12:00:00',
-    -(amount || 0),
-    'dinheiro',
-    '',
-    'decimo_terceiro',
-    `Décimo ${installment}ª parcela - ${get("SELECT name FROM employees WHERE id=?",[employee_id])?.name}`,
-    'thirteen_salary',
-    0,
-    nowLocal()
-  ]);
-  
-  // Atualizar ou criar registro
-  let record = get("SELECT * FROM thirteen_salary WHERE employee_id=? AND year=?", [employee_id, year]);
-  if (record) {
-    run(`UPDATE thirteen_salary SET ${field}=?, ${dateField}=? WHERE id=?`, [amount, paid_at, record.id]);
-  } else {
-    const id = insert("INSERT INTO thirteen_salary (employee_id,year,total,first_installment,first_installment_paid_at,created_at) VALUES (?,?,?,?,?,?)", 
-      [employee_id, year, amount*2, amount, paid_at, nowLocal()]);
-    record = get("SELECT * FROM thirteen_salary WHERE id=?",[id]);
+// Pagamento do 13º: registra no caixa e em salary_advances com advance_type decimo_primeira/decimo_segunda
+ipcMain.handle("thirteenth:pay", (_, d) => {
+  const emp = get("SELECT * FROM employees WHERE id=?", [d.employee_id]);
+  if (!emp) return { error: 'Funcionário não encontrado' };
+  if (!d.amount || d.amount <= 0) return { error: 'Informe um valor válido' };
+  const effectiveDate = d.date || today();
+  const y = (effectiveDate || today()).slice(0,4);
+  const refMonth = `${y}-12`;
+  const type = d.installment_type || d.advance_type || 'decimo_primeira';
+
+  const desc = `${type === 'decimo_segunda' ? '13º 2ª' : '13º 1ª'}: ${emp.name || ('Funcionário #' + d.employee_id)}`;
+  const m = normalizeMethod(d.method);
+  const acc = defaultAccountFor(m, d.account_label || '');
+  if (m !== 'dinheiro' && !String(acc).trim()) {
+    return { error: 'Selecione uma conta/banco quando o método de pagamento não for dinheiro.' };
   }
-  
+  const cashId = insert("INSERT INTO cash_ledger (occurred_at,amount,method,account_label,category,description,source_type,source_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+    [effectiveDate + 'T12:00:00', -(d.amount || 0), m, acc, 'decimo_terceiro', desc, 'salary_advance', 0, nowLocal()]
+  );
+
+  const advId = insert(
+    "INSERT INTO salary_advances (employee_id,advance_type,amount,date,note,source_id,reference_month,created_at) VALUES (?,?,?,?,?,?,?,?)",
+    [d.employee_id, type, d.amount, effectiveDate, d.note || null, cashId, refMonth, nowLocal()]
+  );
   saveDb();
-  return { success: true, record, cash_id: cashId };
+  return get("SELECT * FROM salary_advances WHERE id=?", [advId]);
 });
 
 ipcMain.handle("import:csv", async (_, {table}) => {
@@ -1130,6 +1428,25 @@ ipcMain.handle("import:csv", async (_, {table}) => {
         else if(table==="caixa") insert("INSERT INTO cash_ledger (occurred_at,amount,method,account_label,category,description,source_type) VALUES (?,?,?,?,?,?,?)",[row.occurred_at,row.amount||0,row.method,row.account_label,row.category||"manual",row.description,row.source_type||"manual"]);
         else if(table==="ap") insert("INSERT OR IGNORE INTO accounts_payable (description,category,amount,due_date,status,note) VALUES (?,?,?,?,?,?)",[row.description,row.category||"geral",row.amount||0,row.due_date,row.status||"pendente",row.note]);
         else if(table==="ar") insert("INSERT OR IGNORE INTO accounts_receivable (description,category,amount,due_date,status,note) VALUES (?,?,?,?,?,?)",[row.description,row.category||"geral",row.amount||0,row.due_date,row.status||"pendente",row.note]);
+        else if(table==="clientes") {
+          const full = (row.name || '').trim();
+          const parts = full.split(/\s+/);
+          const firstName = row.first_name || parts[0] || full || '';
+          const lastName = row.last_name || parts.slice(1).join(' ') || '.';
+          // Se coluna 'name' existir no schema, manter também
+          try { run("ALTER TABLE clients ADD COLUMN name TEXT", []); } catch(_){ }
+          insert("INSERT OR IGNORE INTO clients (first_name,last_name,phone,email,address,created_at) VALUES (?,?,?,?,?,?)",
+            [firstName, lastName, row.phone || '', row.email || '', row.address || '', row.created_at || nowLocal()]);
+          // Atualizar coluna name se existir
+          try {
+            const lastId = get("SELECT last_insert_rowid() as id")?.id;
+            if (lastId) run("UPDATE clients SET name=? WHERE id=?", [full || (`${firstName} ${lastName}`.trim()), lastId]);
+          } catch(_) { }
+        }
+        else if(table==="servicos") {
+          insert("INSERT OR IGNORE INTO services (name,description,category,unit_price,unit,active,created_at) VALUES (?,?,?,?,?,?,?)",
+            [row.name, row.description || '', row.category || 'geral', parseFloat(row.unit_price || row.price || 0) || 0, row.unit || 'un', (row.active==null?1:(String(row.active).toLowerCase()==='true'||String(row.active)==='1'?1:0)), row.created_at || nowLocal()]);
+        }
         count++;
       } catch(e){}
     }
@@ -1191,6 +1508,42 @@ ipcMain.handle("company:update", (_, data) => {
   return { ok: true };
 });
 
+ipcMain.handle("payment_methods:list", () => {
+  return all("SELECT name, active FROM payment_methods ORDER BY name ASC");
+});
+ipcMain.handle("payment_methods:create", (_, {name, active}) => {
+  if (!name) return { ok:false, error:'Nome inválido' };
+  try { insert("INSERT OR IGNORE INTO payment_methods (name,active,created_at) VALUES (?,?,?)", [String(name).trim().toLowerCase(), active?1:1, nowLocal()]); } catch(_){ }
+  return { ok:true };
+});
+ipcMain.handle("payment_methods:update", (_, {name, active}) => {
+  if (!name) return { ok:false, error:'Nome inválido' };
+  run("UPDATE payment_methods SET active=? WHERE name=?", [active?1:0, String(name).trim().toLowerCase()]);
+  return { ok:true };
+});
+ipcMain.handle("payment_methods:delete", (_, {name}) => {
+  if (!name) return { ok:false, error:'Nome inválido' };
+  run("UPDATE payment_methods SET active=0 WHERE name=?", [String(name).trim().toLowerCase()]);
+  return { ok:true };
+});
+
+ipcMain.handle("bank_accounts:list", () => {
+  return all("SELECT * FROM bank_accounts WHERE active=1 ORDER BY label ASC");
+});
+ipcMain.handle("bank_accounts:create", (_, d) => {
+  if (!d?.label) return { ok:false, error:'Label inválido' };
+  const id = insert("INSERT INTO bank_accounts (label, bank_name, agency, account_number, active, created_at) VALUES (?,?,?,?,?,?)", [d.label, d.bank_name||null, d.agency||null, d.account_number||null, 1, nowLocal()]);
+  return get("SELECT * FROM bank_accounts WHERE id=?", [id]);
+});
+ipcMain.handle("bank_accounts:update", (_, {id, ...d}) => {
+  run("UPDATE bank_accounts SET label=?, bank_name=?, agency=?, account_number=?, active=? WHERE id=?", [d.label, d.bank_name||null, d.agency||null, d.account_number||null, d.active?1:0, id]);
+  return get("SELECT * FROM bank_accounts WHERE id=?", [id]);
+});
+ipcMain.handle("bank_accounts:delete", (_, id) => {
+  run("UPDATE bank_accounts SET active=0 WHERE id=?", [id]);
+  return { ok:true };
+});
+
 ipcMain.handle("dashboard:ready_count", () => {
   return get("SELECT COUNT(*) as c FROM service_orders WHERE status='pronta'")?.c || 0;
 });
@@ -1235,13 +1588,18 @@ ipcMain.handle("salary_pending:pay", (_, { id, amount, method, account_label, cr
   
   const now = nowLocal();
   const today = today();
+  const m = normalizeMethod(method);
+  const acc = defaultAccountFor(m, account_label || '');
+  if (m !== 'dinheiro' && !String(acc).trim()) {
+    return { error: 'Selecione uma conta/banco quando o método de pagamento não for dinheiro.' };
+  }
   
   // Criar lançamento no caixa
   const cashId = insert("INSERT INTO cash_ledger (occurred_at,amount,method,account_label,category,description,source_type,source_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)", [
     today + 'T12:00:00',
     -(payAmount || 0),
-    method || 'dinheiro',
-    account_label || '',
+    m,
+    acc,
     'saldo_salario_anterior',
     `Pagamento parcial saldo ${pending.reference_month}: ${get("SELECT name FROM employees WHERE id=?", [pending.employee_id])?.name} (R$${payAmount} de R$${pending.amount})`,
     'salary_pending',
@@ -1262,7 +1620,7 @@ ipcMain.handle("salary_pending:pay", (_, { id, amount, method, account_label, cr
       today,
       'paga',
       now,
-      method || 'dinheiro',
+      m,
       `Funcionário ID: ${pending.employee_id} - Pago: ${payAmount} de ${pending.amount}`,
       now
     ]);
@@ -1371,19 +1729,28 @@ ipcMain.handle("debug:reset_salary_state", (_, { employee_id }) => {
   return { ok: true, pendDeleted, adjDeleted };
 });
 
-function createWindow() {
+async function createWindow() {
   const win = new BrowserWindow({
     width:1280, height:800, minWidth:900, minHeight:600,
     webPreferences:{preload:path.join(__dirname,"preload.js"),contextIsolation:true,nodeIntegration:false},
     title:"OS e Contabil  Lavanderia"
   });
-  if(isDev){win.loadURL("http://localhost:3000");win.webContents.openDevTools();}
+  if(isDev){
+    const url = await waitForDevServer();
+    if (url && /^https?:\/\//.test(url)) {
+      await win.loadURL(url + '/#/dashboard');
+    } else {
+      // Fallback seguro: carrega build local se o dev server não respondeu
+      await win.loadFile(path.join(__dirname, "../dist/index.html"));
+    }
+    try { win.webContents.openDevTools(); } catch(_) {}
+  }
   else win.loadFile(path.join(__dirname,"../dist/index.html"));
 }
 
 app.whenReady().then(async () => {
   await initDb();
-  createWindow();
+  await createWindow();
   app.on("activate", () => {if(BrowserWindow.getAllWindows().length===0) createWindow();});
 });
 app.on("window-all-closed", () => {if(process.platform!=="darwin") app.quit();});

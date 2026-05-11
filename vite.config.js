@@ -9,6 +9,7 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
-    port: 3000,
+    port: Number(process.env.PORT || process.env.DEV_PORT || 3000),
+    strictPort: false,
   },
 });

@@ -1750,6 +1750,24 @@ async function createWindow() {
 
 app.whenReady().then(async () => {
   await initDb();
+  // Optional one-off reset: preserve clients/services and clear OS/Caixa/AP/AR
+  if (process.env.RESET_FINANCE === '1') {
+    try {
+      run("DELETE FROM cash_ledger");
+      run("DELETE FROM os_payments");
+      run("DELETE FROM os_items");
+      run("DELETE FROM service_orders");
+      try { run("DELETE FROM accounts_payable"); } catch(_){ }
+      try { run("DELETE FROM accounts_receivable"); } catch(_){ }
+      try { run("VACUUM"); } catch(_){ }
+      saveDb();
+      console.log('[reset] Banco reiniciado: OS, pagamentos, itens, caixa, AP/AR limpos. Clientes e serviços preservados.');
+    } catch (e) {
+      console.error('[reset] Falha ao reiniciar base:', e);
+    }
+    app.quit();
+    return;
+  }
   await createWindow();
   app.on("activate", () => {if(BrowserWindow.getAllWindows().length===0) createWindow();});
 });

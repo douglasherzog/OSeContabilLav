@@ -2,6 +2,21 @@
 // Evita problemas de fuso horário, formato e cálculos de datas
 
 /**
+ * Retorna data/hora local no formato YYYY-MM-DDTHH:mm para uso em
+ * campos <input type="datetime-local"> (fuso do sistema/São Paulo)
+ */
+export function nowLocalInput() {
+  const d = new Date();
+  const brasilia = new Date(d.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+  const year = brasilia.getFullYear();
+  const month = String(brasilia.getMonth() + 1).padStart(2, '0');
+  const day = String(brasilia.getDate()).padStart(2, '0');
+  const hours = String(brasilia.getHours()).padStart(2, '0');
+  const minutes = String(brasilia.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+/**
  * Retorna a data atual no formato YYYY-MM-DD (fuso local São Paulo/UTC-3)
  */
 export function today() {

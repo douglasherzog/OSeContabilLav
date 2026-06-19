@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect width="256" height="256" rx="48" fill="#1d4ed8"/>
+  <text x="128" y="108" font-family="Arial, sans-serif" font-size="72" font-weight="bold"
+        fill="white" text-anchor="middle" dominant-baseline="middle">LSP</text>
+  <text x="128" y="170" font-family="Arial, sans-serif" font-size="28" font-weight="500"
+        fill="#93c5fd" text-anchor="middle" dominant-baseline="middle">LAVANDERIA</text>
+</svg>

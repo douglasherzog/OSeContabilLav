@@ -1,18 +1,18 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { createPortal } from 'react-dom';
+﻿import React, { useEffect, useState, useCallback } from 'react';
 import { useModalFocus } from '../useModalFocus';
+import Modal from '../components/Modal';
 import { Plus, RefreshCw, Pencil, Trash2, CheckCircle, XCircle, Download, Settings2 } from 'lucide-react';
 import { brl, fmtDate, today, exportCSV } from '../utils';
 import { useToastCtx } from '../ToastContext';
 
-const emptyForm = { description: '', category: 'geral', amount: '', due_date: '', note: '' };
+const emptyForm = { description: '', category: 'geral', amount: '', due_date: '', note: '', recurrence: false, interval_value: 1, interval_unit: 'month', end_date: '', recurrence_type: 'variable', installments_count: '', installments_days: '' };
 const RESERVED_CATS = ['contas'];
 
 export default function ContasPagar() {
   const toast = useToastCtx();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [filters, setFilters] = useState({ status: 'pendente', date_from: '', date_to: '' });
+  const [filters, setFilters] = useState({ status: 'pendente', date_from: '', date_to: '', recurrence: '' });
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [editing, setEditing] = useState(null);
@@ -21,6 +21,8 @@ export default function ContasPagar() {
   const [categories, setCategories] = useState([]);
   const [showCategories, setShowCategories] = useState(false);
   const [newCategory, setNewCategory] = useState('');
+  const [showNewCategoryInline, setShowNewCategoryInline] = useState(false);
+  const [newCategoryInline, setNewCategoryInline] = useState('');
   const firstInputRef = useModalFocus(showForm);
   const [methods, setMethods] = useState([]);
   const [accounts, setAccounts] = useState([]);
@@ -54,12 +56,70 @@ export default function ContasPagar() {
     return r.status === 'pendente' && r.due_date && r.due_date < todayStr;
   }
 
+  function addMonths(dateStr, months) {
+    const d = new Date(dateStr + 'T00:00:00');
+    const day = d.getDate();
+    d.setMonth(d.getMonth() + months);
+    const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    d.setDate(Math.min(day, lastDay));
+    return d.toISOString().slice(0, 10);
+  }
+
+  function addInterval(dateStr, intervalValue, intervalUnit) {
+    const val = Math.max(1, parseInt(intervalValue || 1, 10));
+    const unit = (intervalUnit || 'month').toLowerCase();
+    if (unit === 'week') return addDays(dateStr, val * 7);
+    if (unit === 'day') return addDays(dateStr, val);
+    return addMonths(dateStr, val);
+  }
+
+  function addDays(dateStr, days) {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+
   async function handleSubmit() {
     if (!form.description?.trim()) { toast.error('Informe a descrição.'); return; }
     const payload = { ...form, amount: parseFloat(form.amount) || 0 };
+    if (payload.recurrence && payload.recurrence_type === 'installments_custom') {
+      if (!payload.due_date) { toast.error('Informe a data base da compra.'); return; }
+      const daysList = String(payload.installments_days || '')
+        .split(/[;,\s]+/)
+        .map(v => parseInt(v, 10))
+        .filter(v => Number.isFinite(v) && v >= 0);
+      if (daysList.length === 0) { toast.error('Informe os dias das parcelas (ex.: 15,30,45).'); return; }
+      const total = parseFloat(payload.amount) || 0;
+      const base = Math.floor((total / daysList.length) * 100) / 100;
+      const remainder = +(total - base * daysList.length).toFixed(2);
+      const installments = daysList.map((days, idx) => ({
+        due_date: addDays(payload.due_date, days),
+        amount: +(base + (idx === daysList.length - 1 ? remainder : 0)).toFixed(2),
+        note: `Parcela ${idx + 1}/${daysList.length} (${days} dias)`
+      }));
+      payload.installments_custom = installments;
+      payload.recurrence = null;
+    } else if (payload.recurrence) {
+      if (!payload.due_date) { toast.error('Informe a data inicial da recorrência.'); return; }
+      const installmentsCount = parseInt(payload.installments_count || 0, 10);
+      let endDate = payload.end_date || null;
+      if (payload.recurrence_type === 'installments' && installmentsCount > 1) {
+        endDate = addInterval(payload.due_date, (installmentsCount - 1) * parseInt(payload.interval_value || 1, 10), payload.interval_unit);
+      }
+      payload.recurrence = {
+        start_date: payload.due_date,
+        interval_value: parseInt(payload.interval_value || 1, 10),
+        interval_unit: payload.interval_unit || 'month',
+        end_date: endDate,
+        recurrence_type: payload.recurrence_type || 'variable',
+        installments_count: installmentsCount || null,
+      };
+    } else {
+      payload.recurrence = null;
+    }
     try {
       if (editing) { await window.api.ap.update({ id: editing, ...payload, status: 'pendente' }); setEditing(null); toast.success('Conta atualizada!'); }
-      else { await window.api.ap.create(payload); toast.success('Conta criada!'); }
+      else { await window.api.ap.create(payload); toast.success(payload.recurrence ? 'Recorrência criada!' : 'Conta criada!'); }
       setForm(emptyForm); setShowForm(false); load();
     } catch { toast.error('Erro ao salvar conta.'); }
   }
@@ -124,13 +184,23 @@ export default function ContasPagar() {
     catch { toast.error('Erro ao excluir.'); }
   }
 
-  async function handleAddCategory() {
-    const name = newCategory.trim().toLowerCase().replace(/\s+/g, '_');
+  async function handleAddCategory(value) {
+    const raw = (value ?? newCategory).trim();
+    const name = raw.toLowerCase().replace(/\s+/g, '_');
     if (!name) { toast.error('Informe um nome.'); return; }
     if (RESERVED_CATS.includes(name)) { toast.error('Nome reservado.'); return; }
     try {
       const res = await window.api.ap.categories.create(name);
-      if (res?.ok) { toast.success('Categoria criada!'); setNewCategory(''); loadCategories(); }
+      if (res?.ok) {
+        toast.success('Categoria criada!');
+        setNewCategory('');
+        loadCategories();
+        if (value != null) {
+          setForm(f => ({ ...f, category: name }));
+          setNewCategoryInline('');
+          setShowNewCategoryInline(false);
+        }
+      }
       else { toast.error(res?.error || 'Erro ao criar categoria.'); }
     } catch { toast.error('Erro ao criar categoria.'); }
   }
@@ -176,6 +246,11 @@ export default function ContasPagar() {
           <option value="paga">Pagas</option>
           <option value="">Todas</option>
         </select>
+        <select className="border rounded-lg px-2 py-1.5 text-sm" value={filters.recurrence} onChange={e => setFilters(f => ({ ...f, recurrence: e.target.value }))}>
+          <option value="">Todas</option>
+          <option value="1">Recorrentes</option>
+          <option value="0">Avulsas</option>
+        </select>
         <div className="flex items-center gap-1 text-sm">
           <span className="text-gray-500">De</span>
           <input type="date" className="border rounded-lg px-2 py-1.5" value={filters.date_from} onChange={e => setFilters(f => ({ ...f, date_from: e.target.value }))} />
@@ -199,8 +274,13 @@ export default function ContasPagar() {
               : rows.map(r => (
                 <tr key={r.id} className="border-b last:border-0 hover:bg-gray-50">
                   <td className="px-3 py-2.5">
-                    <div className="font-medium">{r.description}</div>
-                    {r.note && <div className="text-xs text-gray-400">{r.note}</div>}
+                    <div className="flex items-center gap-2 font-medium">
+                      <span>{r.description}</span>
+                      {r.note?.startsWith('Parcela ') && (
+                        <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100">{r.note}</span>
+                      )}
+                    </div>
+                    {r.note && !r.note.startsWith('Parcela ') && <div className="text-xs text-gray-400">{r.note}</div>}
                   </td>
                   <td className="px-3 py-2.5"><code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">{r.category}</code></td>
                   <td className="px-3 py-2.5">{r.due_date ? fmtDate(r.due_date) : '-'}</td>
@@ -231,18 +311,37 @@ export default function ContasPagar() {
         </table>
       </div>
 
-      {/* Modal Nova/Editar */}
-      {showForm && createPortal(
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-            <h2 className="text-lg font-bold mb-4">{editing ? 'Editar' : 'Nova'} Conta a Pagar</h2>
-            <div className="space-y-3">
+      <Modal
+        isOpen={showForm}
+        onClose={() => { setShowForm(false); setEditing(null); }}
+        title={`${editing ? 'Editar' : 'Nova'} Conta a Pagar`}
+        maxWidth="max-w-md"
+        footer={
+          <>
+            <button type="button" onClick={() => { setShowForm(false); setEditing(null); }} className="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
+            <button type="button" onClick={handleSubmit} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm">Salvar</button>
+          </>
+        }
+      >
+        <div className="space-y-3">
               <input ref={firstInputRef} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Descrição *" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
               <div className="flex gap-2">
-                <select className="flex-1 border rounded-lg px-3 py-2 text-sm" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
-                  <option value="geral">geral</option>
-                  {categories.filter(c => c !== 'geral').map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                </select>
+                <div className="flex-1">
+                  <div className="flex gap-2">
+                    <select className="flex-1 border rounded-lg px-3 py-2 text-sm" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
+                      <option value="geral">geral</option>
+                      {categories.filter(c => c !== 'geral').map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    </select>
+                    <button type="button" onClick={() => setShowNewCategoryInline(v => !v)} className="px-2 py-2 text-xs border rounded-md bg-white hover:bg-gray-50">+</button>
+                  </div>
+                  {showNewCategoryInline && (
+                    <div className="flex gap-2 items-center mt-2">
+                      <input className="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="Nova categoria" value={newCategoryInline} onChange={e => setNewCategoryInline(e.target.value)} />
+                      <button type="button" onClick={() => handleAddCategory(newCategoryInline)} disabled={!newCategoryInline.trim()} className="px-3 py-2 text-xs bg-blue-600 text-white rounded-md disabled:opacity-40">Adicionar</button>
+                      <button type="button" onClick={() => { setShowNewCategoryInline(false); setNewCategoryInline(''); }} className="px-3 py-2 text-xs border rounded-md bg-white">Cancelar</button>
+                    </div>
+                  )}
+                </div>
                 <input type="number" className="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="Valor (R$) *" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} step="0.01" min="0.01" required />
               </div>
               <div>
@@ -250,22 +349,74 @@ export default function ContasPagar() {
                 <input type="date" className="w-full border rounded-lg px-3 py-2 text-sm" value={form.due_date} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))} />
               </div>
               <textarea className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Observações" rows={2} value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} />
-              <div className="flex gap-2 justify-end pt-1">
-                <button type="button" onClick={() => { setShowForm(false); setEditing(null); }} className="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
-                <button type="button" onClick={handleSubmit} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm">Salvar</button>
-              </div>
-            </div>
-          </div>
+              {!editing && (
+                <div className="border rounded-lg p-3">
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                    <input type="checkbox" className="accent-blue-600" checked={!!form.recurrence} onChange={e => setForm(f => ({ ...f, recurrence: e.target.checked }))} />
+                    Conta recorrente
+                  </label>
+                  {form.recurrence && (
+                    <div className="mt-3 space-y-2">
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Tipo de recorrência</label>
+                        <select className="w-full border rounded-lg px-2 py-1.5 text-sm" value={form.recurrence_type} onChange={e => setForm(f => ({ ...f, recurrence_type: e.target.value }))}>
+                          <option value="variable">Valor variável (água, luz, etc.)</option>
+                          <option value="installments">Parcelada (valor fixo)</option>
+                          <option value="installments_custom">Parcelada por dias (15/30/45)</option>
+                        </select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">Repetir a cada</label>
+                          <div className="flex gap-2">
+                            <input type="number" className="w-20 border rounded-lg px-2 py-1.5 text-sm" min="1" value={form.interval_value} onChange={e => setForm(f => ({ ...f, interval_value: e.target.value }))} />
+                            <select className="flex-1 border rounded-lg px-2 py-1.5 text-sm" value={form.interval_unit} onChange={e => setForm(f => ({ ...f, interval_unit: e.target.value }))}>
+                              <option value="day">dias</option>
+                              <option value="week">semanas</option>
+                              <option value="month">meses</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">Encerrar em</label>
+                          <input type="date" className="w-full border rounded-lg px-2 py-1.5 text-sm" value={form.end_date} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))} disabled={form.recurrence_type === 'installments'} />
+                        </div>
+                      </div>
+                      {form.recurrence_type === 'installments' && (
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">Número de parcelas</label>
+                          <input type="number" className="w-full border rounded-lg px-2 py-1.5 text-sm" min="2" value={form.installments_count} onChange={e => setForm(f => ({ ...f, installments_count: e.target.value }))} />
+                        </div>
+                      )}
+                      {form.recurrence_type === 'installments_custom' && (
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">Dias das parcelas</label>
+                          <input type="text" className="w-full border rounded-lg px-2 py-1.5 text-sm" placeholder="Ex.: 15,30,45" value={form.installments_days} onChange={e => setForm(f => ({ ...f, installments_days: e.target.value }))} />
+                          <p className="text-xs text-gray-400 mt-1">Os valores serão divididos igualmente. Última parcela ajusta o centavo.</p>
+                        </div>
+                      )}
+                      <p className="text-xs text-gray-400">A primeira ocorrência será na data de vencimento informada.</p>
+                    </div>
+                  )}
+                </div>
+              )}
         </div>
-      , document.body)}
+      </Modal>
 
-      {/* Modal Pagar */}
-      {payModal && createPortal(
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
-            <h2 className="text-lg font-bold mb-1">Marcar como Paga</h2>
-            <p className="text-sm text-gray-500 mb-4">{payModal.description} — R$ {brl(payModal.amount)}</p>
-            <div className="space-y-3">
+      <Modal
+        isOpen={!!payModal}
+        onClose={() => setPayModal(null)}
+        title="Marcar como Paga"
+        subtitle={payModal ? `${payModal.description} — R$ ${brl(payModal.amount)}` : ''}
+        maxWidth="max-w-sm"
+        footer={
+          <>
+            <button type="button" onClick={() => setPayModal(null)} className="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
+            <button type="button" onClick={handlePay} className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm">Confirmar</button>
+          </>
+        }
+      >
+        <div className="space-y-3">
               <input type="date" className="w-full border rounded-lg px-3 py-2 text-sm" value={payForm.paid_at} onChange={e => setPayForm(f => ({ ...f, paid_at: e.target.value }))} />
               <div className="flex gap-2">
                 <div className="flex-1 flex items-center gap-1">
@@ -301,44 +452,32 @@ export default function ContasPagar() {
                   <button type="button" onClick={()=>{setShowNewAccount(false);setNewAccountLabel('');}} className="px-3 py-2 text-xs border rounded-md bg-white">Cancelar</button>
                 </div>
               )}
-              <div className="flex gap-2 justify-end pt-1">
-                <button type="button" onClick={() => setPayModal(null)} className="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
-                <button type="button" onClick={handlePay} className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm">Confirmar</button>
-              </div>
-            </div>
-          </div>
         </div>
-      , document.body)}
+      </Modal>
 
-      {/* Modal Categorias */}
-      {showCategories && createPortal(
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">Categorias</h2>
-              <button onClick={() => setShowCategories(false)} className="text-gray-400 hover:text-gray-600">
-                <XCircle size={20} />
-              </button>
-            </div>
-            <div className="flex gap-2 mb-4">
-              <input className="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="Nova categoria" value={newCategory} onChange={e => setNewCategory(e.target.value)} />
-              <button onClick={handleAddCategory} className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm"><Plus size={16} /></button>
-            </div>
-            <div className="max-h-60 overflow-y-auto">
-              {categories.length === 0 ? <div className="text-center text-gray-400 py-4">Nenhuma categoria.</div> :
-                categories.map(cat => (
-                  <div key={cat} className="flex items-center justify-between py-2 border-b last:border-0">
-                    <span className="text-sm"><code className="bg-gray-100 px-2 py-1 rounded">{cat}</code></span>
-                    {!['geral'].includes(cat) && (
-                      <button onClick={() => handleDeleteCategory(cat)} className="text-red-500 hover:text-red-700 p-1"><Trash2 size={14} /></button>
-                    )}
-                  </div>
-                ))
-              }
-            </div>
-          </div>
+      <Modal
+        isOpen={showCategories}
+        onClose={() => setShowCategories(false)}
+        title="Categorias"
+        maxWidth="max-w-md"
+      >
+        <div className="flex gap-2">
+          <input className="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="Nova categoria" value={newCategory} onChange={e => setNewCategory(e.target.value)} />
+          <button onClick={handleAddCategory} className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm"><Plus size={16} /></button>
         </div>
-      , document.body)}
+        <div className="max-h-60 overflow-y-auto">
+          {categories.length === 0 ? <div className="text-center text-gray-400 py-4">Nenhuma categoria.</div> :
+            categories.map(cat => (
+              <div key={cat} className="flex items-center justify-between py-2 border-b last:border-0">
+                <span className="text-sm"><code className="bg-gray-100 px-2 py-1 rounded">{cat}</code></span>
+                {!['geral'].includes(cat) && (
+                  <button onClick={() => handleDeleteCategory(cat)} className="text-red-500 hover:text-red-700 p-1"><Trash2 size={14} /></button>
+                )}
+              </div>
+            ))
+          }
+        </div>
+      </Modal>
     </div>
   );
 }

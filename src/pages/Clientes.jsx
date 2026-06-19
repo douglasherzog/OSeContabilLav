@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import { useModalFocus } from '../useModalFocus';
+import Modal from '../components/Modal';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Pencil, Trash2, Search, Phone, Mail, MapPin, RefreshCw, MessageCircle } from 'lucide-react';
 import { fmtDate, brl, STATUS_LABELS, STATUS_COLORS } from '../utils';
@@ -211,41 +211,34 @@ export default function Clientes() {
         </div>
       )}
 
-      {/* Modal novo/editar cliente */}
-      {showForm && createPortal(
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-            <h2 className="text-lg font-bold mb-4">{editing ? 'Editar' : 'Novo'} Cliente</h2>
-            <div className="space-y-3">
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <input ref={firstInputRef} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nome *" value={form.first_name} onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))} />
-                </div>
-                <div className="flex-1">
-                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Sobrenome *" value={form.last_name} onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))} required />
-                </div>
-              </div>
-              <div>
-                <input
-                  className={`w-full border rounded-lg px-3 py-2 text-sm ${!form.phone ? 'border-yellow-300 bg-yellow-50' : ''}`}
-                  placeholder="Telefone / WhatsApp (recomendado)"
-                  value={form.phone}
-                  onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                />
-                {!form.phone && (
-                  <div className="text-xs text-yellow-600 mt-1 ml-1">⚠️ Recomendado para contato e WhatsApp</div>
-                )}
-              </div>
-              <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="E-mail" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
-              <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Endereço" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} />
-              <div className="flex gap-2 justify-end pt-1">
-                <button type="button" onClick={() => { setShowForm(false); setEditing(null); }} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">Cancelar</button>
-                <button type="button" onClick={handleSubmit} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">Salvar</button>
-              </div>
-            </div>
-          </div>
+      <Modal
+        isOpen={showForm}
+        onClose={() => { setShowForm(false); setEditing(null); }}
+        title={`${editing ? 'Editar' : 'Novo'} Cliente`}
+        maxWidth="max-w-md"
+        footer={
+          <>
+            <button type="button" onClick={() => { setShowForm(false); setEditing(null); }} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">Cancelar</button>
+            <button type="button" onClick={handleSubmit} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">Salvar</button>
+          </>
+        }
+      >
+        <div className="flex gap-2">
+          <input ref={firstInputRef} className="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="Nome *" value={form.first_name} onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))} />
+          <input className="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="Sobrenome *" value={form.last_name} onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))} required />
         </div>
-      , document.body)}
+        <div>
+          <input
+            className={`w-full border rounded-lg px-3 py-2 text-sm ${!form.phone ? 'border-yellow-300 bg-yellow-50' : ''}`}
+            placeholder="Telefone / WhatsApp (recomendado)"
+            value={form.phone}
+            onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+          />
+          {!form.phone && <div className="text-xs text-yellow-600 mt-1 ml-1">⚠️ Recomendado para contato e WhatsApp</div>}
+        </div>
+        <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="E-mail" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+        <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Endereço" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} />
+      </Modal>
     </div>
   );
 }

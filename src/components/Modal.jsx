@@ -14,7 +14,8 @@ export default function Modal({
   children, 
   footer,
   className = '',
-  maxWidth = 'max-w-sm'
+  maxWidth = 'max-w-sm',
+  scrollable = false
 }) {
   const modalRef = useRef(null);
   const overlayRef = useRef(null);
@@ -66,7 +67,7 @@ export default function Modal({
     >
       <div 
         ref={modalRef}
-        className={`bg-white rounded-2xl shadow-xl w-full ${maxWidth} p-6 ${className}`}
+        className={`bg-white rounded-2xl shadow-xl w-full ${maxWidth} p-6 ${scrollable ? 'max-h-[90vh] overflow-y-auto' : ''} ${className}`}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import { useModalFocus } from '../useModalFocus';
+import Modal from '../components/Modal';
 import { Plus, Pencil, Trash2, DollarSign, TrendingDown, Users, Calendar, ChevronDown, ChevronUp, XCircle, AlertCircle } from 'lucide-react';
 import { brl, fmtDate, today, monthStart } from '../utils';
 import { useToastCtx } from '../ToastContext';
@@ -421,19 +421,39 @@ export default function Funcionarios() {
                   value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} />
               </div>
             )}
-      {showPayrollClose && selectedEmployee && balance && createPortal(
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-lg font-bold">Fechar Folha do Mês</h2>
-                <p className="text-sm text-gray-500">{selectedEmployee.name} — {new Date(selectedMonth + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</p>
-              </div>
-              <button onClick={() => setShowPayrollClose(false)} className="text-gray-400 hover:text-gray-600">
-                <XCircle size={20} />
-              </button>
-            </div>
-            <div className="space-y-3">
+      <Modal
+        isOpen={!!(showPayrollClose && selectedEmployee && balance)}
+        onClose={() => setShowPayrollClose(false)}
+        title="Fechar Folha do Mês"
+        subtitle={selectedEmployee && selectedMonth ? `${selectedEmployee.name} — ${new Date(selectedMonth + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}` : ''}
+        maxWidth="max-w-sm"
+        footer={
+          <>
+            <button type="button" onClick={() => setShowPayrollClose(false)} className="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
+            <button type="button" onClick={async () => {
+              const net = parseFloat(payrollForm.net_amount);
+              if (!net || net <= 0) { toast.error('Informe um líquido válido.'); return; }
+              try {
+                const res = await window.api.payroll.close({
+                  employee_id: selectedEmployee.id,
+                  month: selectedMonth,
+                  net_amount: net,
+                  method: payrollForm.method,
+                  account_label: payrollForm.account_label,
+                  note: payrollForm.note
+                });
+                if (res?.error) { toast.error(res.error); return; }
+                toast.success('Folha fechada!');
+                setShowPayrollClose(false);
+                setPayrollForm({ net_amount: '', method: 'dinheiro', account_label: '', note: '' });
+                await loadAdvances();
+                await loadBalance();
+              } catch { toast.error('Erro ao fechar a folha.'); }
+            }} className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm">Confirmar</button>
+          </>
+        }
+      >
+        <div className="space-y-3">
               <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" 
                 placeholder="Líquido do mês (R$) *" value={payrollForm.net_amount}
                 onChange={e => setPayrollForm(f => ({ ...f, net_amount: e.target.value }))} step="0.01" />
@@ -463,35 +483,8 @@ export default function Funcionarios() {
                   Atenção: os adiantamentos superam o líquido informado. O fechamento gerará valor negativo (saída zero se você ajustar o líquido).
                 </div>
               )}
-              <div className="flex gap-2 justify-end pt-1">
-                <button type="button" onClick={() => setShowPayrollClose(false)} 
-                  className="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
-                <button type="button" onClick={async () => {
-                  const net = parseFloat(payrollForm.net_amount);
-                  if (!net || net <= 0) { toast.error('Informe um líquido válido.'); return; }
-                  try {
-                    const res = await window.api.payroll.close({
-                      employee_id: selectedEmployee.id,
-                      month: selectedMonth,
-                      net_amount: net,
-                      method: payrollForm.method,
-                      account_label: payrollForm.account_label,
-                      note: payrollForm.note
-                    });
-                    if (res?.error) { toast.error(res.error); return; }
-                    toast.success('Folha fechada!');
-                    setShowPayrollClose(false);
-                    setPayrollForm({ net_amount: '', method: 'dinheiro', account_label: '', note: '' });
-                    await loadAdvances();
-                    await loadBalance();
-                  } catch { toast.error('Erro ao fechar a folha.'); }
-                }}
-                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm">Confirmar</button>
-              </div>
-            </div>
-          </div>
-        </div>, document.body)
-      }
+        </div>
+      </Modal>
           </div>
 
           {!selectedEmployee ? (
@@ -728,12 +721,19 @@ export default function Funcionarios() {
         </div>
       </div>
 
-      {/* Modal Novo/Editar Funcionário */}
-      {showForm && createPortal(
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-            <h2 className="text-lg font-bold mb-4">{editing ? 'Editar' : 'Novo'} Funcionário</h2>
-            <div className="space-y-3">
+      <Modal
+        isOpen={showForm}
+        onClose={() => { setShowForm(false); setEditing(null); }}
+        title={`${editing ? 'Editar' : 'Novo'} Funcionário`}
+        maxWidth="max-w-md"
+        footer={
+          <>
+            <button type="button" onClick={() => { setShowForm(false); setEditing(null); }} className="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
+            <button type="button" onClick={handleSubmit} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm">Salvar</button>
+          </>
+        }
+      >
+        <div className="space-y-3">
               <input ref={firstInputRef} className="w-full border rounded-lg px-3 py-2 text-sm" 
                 placeholder="Nome *" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
               <div>
@@ -762,31 +762,23 @@ export default function Funcionarios() {
                 <input type="date" className="w-full border rounded-lg px-3 py-2 text-sm" 
                   value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))} />
               </div>
-              <div className="flex gap-2 justify-end pt-1">
-                <button type="button" onClick={() => { setShowForm(false); setEditing(null); }} 
-                  className="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
-                <button type="button" onClick={handleSubmit} 
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm">Salvar</button>
-              </div>
-            </div>
-          </div>
         </div>
-      , document.body)}
+      </Modal>
 
-      {/* Modal Adiantamento */}
-      {showAdvanceForm && selectedEmployee && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-lg font-bold">Registrar Adiantamento</h2>
-                <p className="text-sm text-gray-500">{selectedEmployee.name}</p>
-              </div>
-              <button onClick={() => setShowAdvanceForm(false)} className="text-gray-400 hover:text-gray-600">
-                <XCircle size={20} />
-              </button>
-            </div>
-            <div className="space-y-3">
+      <Modal
+        isOpen={!!(showAdvanceForm && selectedEmployee)}
+        onClose={() => setShowAdvanceForm(false)}
+        title="Registrar Adiantamento"
+        subtitle={selectedEmployee?.name || ''}
+        maxWidth="max-w-sm"
+        footer={
+          <>
+            <button type="button" onClick={() => setShowAdvanceForm(false)} className="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
+            <button type="button" onClick={handleAddAdvance} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm">Salvar</button>
+          </>
+        }
+      >
+        <div className="space-y-3">
               <select className="w-full border rounded-lg px-3 py-2 text-sm" 
                 value={advanceForm.advance_type} onChange={e => setAdvanceForm(f => ({ ...f, advance_type: e.target.value }))}>
                 <option value="regular">Adiantamento Regular</option>
@@ -831,68 +823,55 @@ export default function Funcionarios() {
               <input className="w-full border rounded-lg px-3 py-2 text-sm" 
                 placeholder="Observação (opcional)" value={advanceForm.note} 
                 onChange={e => setAdvanceForm(f => ({ ...f, note: e.target.value }))} />
-              <div className="flex gap-2 justify-end pt-1">
-                <button type="button" onClick={() => setShowAdvanceForm(false)} 
-                  className="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
-                <button type="button" onClick={handleAddAdvance} 
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm">Salvar</button>
-              </div>
-            </div>
-          </div>
         </div>
-      )}
+      </Modal>
 
-      {/* Modal Histórico de Salários */}
-      {showSalaryHistory && selectedEmployee && createPortal(
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">Histórico de Salários</h2>
-              <button onClick={() => setShowSalaryHistory(false)} className="text-gray-400 hover:text-gray-600">
-                <XCircle size={20} />
-              </button>
-            </div>
-            <p className="text-sm text-gray-600 mb-4">{selectedEmployee.name}</p>
-            <div className="max-h-60 overflow-y-auto space-y-2">
-              {salaryHistory.length === 0 ? (
-                <div className="text-center text-gray-400 py-4">Nenhum registro de salário.</div>
-              ) : (
-                salaryHistory.map((sh, idx) => (
-                  <div key={sh.id} className={`flex items-center justify-between p-3 rounded-lg ${idx === 0 ? 'bg-green-50 border border-green-200' : 'bg-gray-50'}`}>
-                    <div>
-                      <div className="font-medium">R$ {brl(sh.salary)}</div>
-                      <div className="text-xs text-gray-500">
-                        Vigente desde: {sh.start_date}
-                        {sh.end_date && ` até ${sh.end_date}`}
-                        {idx === 0 && ' (atual)'}
-                      </div>
-                    </div>
+      <Modal
+        isOpen={!!(showSalaryHistory && selectedEmployee)}
+        onClose={() => setShowSalaryHistory(false)}
+        title="Histórico de Salários"
+        subtitle={selectedEmployee?.name || ''}
+        maxWidth="max-w-md"
+      >
+        <div className="max-h-60 overflow-y-auto space-y-2">
+          {salaryHistory.length === 0 ? (
+            <div className="text-center text-gray-400 py-4">Nenhum registro de salário.</div>
+          ) : (
+            salaryHistory.map((sh, idx) => (
+              <div key={sh.id} className={`flex items-center justify-between p-3 rounded-lg ${idx === 0 ? 'bg-green-50 border border-green-200' : 'bg-gray-50'}`}>
+                <div>
+                  <div className="font-medium">R$ {brl(sh.salary)}</div>
+                  <div className="text-xs text-gray-500">
+                    Vigente desde: {sh.start_date}
+                    {sh.end_date && ` até ${sh.end_date}`}
+                    {idx === 0 && ' (atual)'}
                   </div>
-                ))
-              )}
-            </div>
-            <div className="mt-4 pt-4 border-t">
-              <button onClick={() => { setShowSalaryHistory(false); startEdit(selectedEmployee); }} 
-                className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
-                Atualizar Salário
-              </button>
-            </div>
-          </div>
+                </div>
+              </div>
+            ))
+          )}
         </div>
-      , document.body)}
+        <div className="pt-2 border-t">
+          <button onClick={() => { setShowSalaryHistory(false); startEdit(selectedEmployee); }}
+            className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+            Atualizar Salário
+          </button>
+        </div>
+      </Modal>
 
-      {/* Modal Pagar Saldo Pendente */}
-      {showPendingModal && createPortal(
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">Pagar Saldo Pendente</h2>
-              <button onClick={() => setShowPendingModal(false)} className="text-gray-400 hover:text-gray-600">
-                <XCircle size={20} />
-              </button>
-            </div>
-            
-            <div className="space-y-3">
+      <Modal
+        isOpen={showPendingModal}
+        onClose={() => setShowPendingModal(false)}
+        title="Pagar Saldo Pendente"
+        maxWidth="max-w-sm"
+        footer={
+          <>
+            <button type="button" onClick={() => setShowPendingModal(false)} className="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
+            <button type="button" onClick={handlePayPending} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm hover:bg-amber-700">Confirmar Pagamento</button>
+          </>
+        }
+      >
+        <div className="space-y-3">
               <p className="text-sm text-gray-600">
                 Pagamento do saldo pendente do mês de referência.
               </p>
@@ -935,30 +914,16 @@ export default function Funcionarios() {
                 </label>
               </div>
               
-              <div className="flex gap-2 justify-end pt-2">
-                <button type="button" onClick={() => setShowPendingModal(false)} 
-                  className="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
-                <button type="button" onClick={handlePayPending} 
-                  className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm hover:bg-amber-700">
-                  Confirmar Pagamento
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
-      , document.body)}
+      </Modal>
 
-      {/* Modal Férias */}
-      {showVacationModal && selectedEmployee && createPortal(
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">Controle de Férias</h2>
-              <button onClick={() => setShowVacationModal(false)} className="text-gray-400 hover:text-gray-600">
-                <XCircle size={20} />
-              </button>
-            </div>
-            <p className="text-sm text-gray-600 mb-4">{selectedEmployee.name}</p>
+      <Modal
+        isOpen={!!(showVacationModal && selectedEmployee)}
+        onClose={() => setShowVacationModal(false)}
+        title="Controle de Férias"
+        subtitle={selectedEmployee?.name || ''}
+        maxWidth="max-w-md"
+      >
             
             {vacationBalance ? (
               <div className="space-y-4">
@@ -1000,7 +965,7 @@ export default function Funcionarios() {
                 </div>
 
                 <div className="mt-4 pt-4 border-t flex gap-2">
-                  <button onClick={() => { setShowVacationModal(false); openVacationRegister(); }} 
+                  <button onClick={() => { setShowVacationModal(false); openVacationRegister(); }}
                     className="flex-1 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700">
                     Lançar Férias
                   </button>
@@ -1009,21 +974,22 @@ export default function Funcionarios() {
             ) : (
               <div className="text-center text-gray-400 py-4">Carregando...</div>
             )}
-          </div>
-        </div>
-      , document.body)}
+      </Modal>
 
-      {/* Modal Registrar Férias */}
-      {showVacationRegister && selectedEmployee && createPortal(
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">Registrar Férias</h2>
-              <button onClick={() => setShowVacationRegister(false)} className="text-gray-400 hover:text-gray-600">
-                <XCircle size={20} />
-              </button>
-            </div>
-            <div className="space-y-3">
+      <Modal
+        isOpen={!!(showVacationRegister && selectedEmployee)}
+        onClose={() => setShowVacationRegister(false)}
+        title="Registrar Férias"
+        subtitle={selectedEmployee?.name || ''}
+        maxWidth="max-w-md"
+        footer={
+          <>
+            <button type="button" onClick={() => setShowVacationRegister(false)} className="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
+            <button type="button" onClick={handleRegisterVacation} className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700">Registrar</button>
+          </>
+        }
+      >
+        <div className="space-y-3">
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">Início</label>
@@ -1063,14 +1029,8 @@ export default function Funcionarios() {
                 </div>
               )}
 
-              <div className="flex gap-2 justify-end pt-1">
-                <button type="button" onClick={() => setShowVacationRegister(false)} className="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
-                <button type="button" onClick={handleRegisterVacation} className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700">Registrar</button>
-              </div>
-            </div>
-          </div>
         </div>
-      , document.body)}
+      </Modal>
     </div>
   );
 }

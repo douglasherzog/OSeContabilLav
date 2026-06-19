@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import { useModalFocus } from '../useModalFocus';
+import Modal from '../components/Modal';
 import { Plus, Pencil, Trash2, Search, ToggleLeft, ToggleRight } from 'lucide-react';
 import { brl, exportCSV, today } from '../utils';
 import { useToastCtx } from '../ToastContext';
@@ -170,73 +170,72 @@ export default function Servicos() {
         </div>
       )}
 
-      {/* Modal novo/editar */}
-      {showForm && createPortal(
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-            <h2 className="text-lg font-bold mb-4">{editing ? 'Editar' : 'Novo'} Serviço</h2>
-            <div className="space-y-3">
+      <Modal
+        isOpen={showForm}
+        onClose={() => { setShowForm(false); setEditing(null); }}
+        title={`${editing ? 'Editar' : 'Novo'} Serviço`}
+        maxWidth="max-w-md"
+        footer={
+          <>
+            <button type="button" onClick={() => { setShowForm(false); setEditing(null); }} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">Cancelar</button>
+            <button type="button" onClick={handleSubmit} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">Salvar</button>
+          </>
+        }
+      >
+        <input
+          ref={firstInputRef}
+          className="w-full border rounded-lg px-3 py-2 text-sm"
+          placeholder="Nome do serviço *"
+          value={form.name}
+          onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+        />
+        <input
+          className="w-full border rounded-lg px-3 py-2 text-sm"
+          placeholder="Descrição (opcional)"
+          value={form.description}
+          onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+        />
+        <select
+          className="w-full border rounded-lg px-3 py-2 text-sm"
+          value={form.unit}
+          onChange={e => setForm(f => ({ ...f, unit: e.target.value }))}
+        >
+          {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+        </select>
+        <input
+          type="number"
+          className="w-full border rounded-lg px-3 py-2 text-sm"
+          placeholder="Preço padrão (R$)"
+          value={form.unit_price}
+          onChange={e => setForm(f => ({ ...f, unit_price: e.target.value }))}
+          step="0.01"
+          min="0"
+        />
+        <div className="border rounded-lg p-3 space-y-2 bg-gray-50">
+          <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer font-medium">
+            <input type="checkbox" checked={!!form.requires_entry} onChange={e => setForm(f => ({ ...f, requires_entry: e.target.checked }))} />
+            Exige entrada obrigatória
+          </label>
+          {form.requires_entry && (
+            <div className="flex items-center gap-2 pl-5">
+              <label className="text-sm text-gray-600">Percentual de entrada:</label>
               <input
-                ref={firstInputRef}
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                placeholder="Nome do serviço *"
-                value={form.name}
-                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                type="number" min="1" max="100" step="1"
+                className="w-20 border rounded-lg px-2 py-1 text-sm text-center"
+                value={form.entry_pct}
+                onChange={e => setForm(f => ({ ...f, entry_pct: e.target.value }))}
               />
-              <input
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                placeholder="Descrição (opcional)"
-                value={form.description}
-                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-              />
-              <select
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                  value={form.unit}
-                  onChange={e => setForm(f => ({ ...f, unit: e.target.value }))}
-                >
-                  {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-                </select>
-              <input
-                type="number"
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                placeholder="Preço padrão (R$)"
-                value={form.unit_price}
-                onChange={e => setForm(f => ({ ...f, unit_price: e.target.value }))}
-                step="0.01"
-                min="0"
-              />
-              <div className="border rounded-lg p-3 space-y-2 bg-gray-50">
-                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer font-medium">
-                  <input type="checkbox" checked={!!form.requires_entry} onChange={e => setForm(f => ({ ...f, requires_entry: e.target.checked }))} />
-                  Exige entrada obrigatória
-                </label>
-                {form.requires_entry && (
-                  <div className="flex items-center gap-2 pl-5">
-                    <label className="text-sm text-gray-600">Percentual de entrada:</label>
-                    <input
-                      type="number" min="1" max="100" step="1"
-                      className="w-20 border rounded-lg px-2 py-1 text-sm text-center"
-                      value={form.entry_pct}
-                      onChange={e => setForm(f => ({ ...f, entry_pct: e.target.value }))}
-                    />
-                    <span className="text-sm text-gray-500">%</span>
-                  </div>
-                )}
-              </div>
-              {editing && (
-                <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-                  <input type="checkbox" checked={!!form.active} onChange={e => setForm(f => ({ ...f, active: e.target.checked }))} />
-                  Serviço ativo
-                </label>
-              )}
-              <div className="flex gap-2 justify-end pt-1">
-                <button type="button" onClick={() => { setShowForm(false); setEditing(null); }} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">Cancelar</button>
-                <button type="button" onClick={handleSubmit} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">Salvar</button>
-              </div>
+              <span className="text-sm text-gray-500">%</span>
             </div>
-          </div>
+          )}
         </div>
-      , document.body)}
+        {editing && (
+          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+            <input type="checkbox" checked={!!form.active} onChange={e => setForm(f => ({ ...f, active: e.target.checked }))} />
+            Serviço ativo
+          </label>
+        )}
+      </Modal>
     </div>
   );
 }

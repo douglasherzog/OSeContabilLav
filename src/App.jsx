@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Receipt, Wallet, CreditCard, TrendingUp, Settings, Users, Layers, Building2, UserCircle } from 'lucide-react';
+import { LayoutDashboard, Receipt, Wallet, CreditCard, TrendingUp, Settings, Users, Layers, Building2, UserCircle, Info } from 'lucide-react';
 import OSList from './pages/OSList';
 import OSDetail from './pages/OSDetail';
 import Caixa from './pages/Caixa';
@@ -12,6 +12,7 @@ import Clientes from './pages/Clientes';
 import Servicos from './pages/Servicos';
 import Configuracoes from './pages/Configuracoes';
 import Funcionarios from './pages/Funcionarios';
+import Sobre from './pages/Sobre';
 
 const NAV = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Painel' },
@@ -24,7 +25,21 @@ const NAV = [
   { to: '/importar', icon: Settings, label: 'Importar' },
   { to: '/funcionarios', icon: UserCircle, label: 'Funcionários' },
   { to: '/configuracoes', icon: Building2, label: 'Configurações' },
+  { to: '/sobre', icon: Info, label: 'Sobre' },
 ];
+
+function SidebarVersion() {
+  const [version, setVersion] = useState('');
+  useEffect(() => {
+    window.api.appInfo?.version().then(setVersion).catch(() => {});
+  }, []);
+  if (!version) return null;
+  return (
+    <div className="px-4 py-3 border-t border-slate-700 text-xs text-slate-500">
+      v{version}
+    </div>
+  );
+}
 
 export default function App() {
   const [overdueCount, setOverdueCount] = useState(0);
@@ -87,6 +102,7 @@ export default function App() {
             </NavLink>
           ))}
         </nav>
+        <SidebarVersion />
       </aside>
 
       {/* Main */}
@@ -104,6 +120,7 @@ export default function App() {
           <Route path="/importar" element={<Importar />} />
           <Route path="/funcionarios" element={<Funcionarios />} />
           <Route path="/configuracoes" element={<Configuracoes />} />
+          <Route path="/sobre" element={<Sobre />} />
         </Routes>
       </main>
     </div>

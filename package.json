@@ -1,12 +1,17 @@
 {
   "name": "osecontabillav",
-  "version": "1.0.0",
-  "description": "OS e Contabilidade - Lavanderia Senhor dos Passos",
+  "version": "1.1.0",
+  "description": "Sistema de Ordens de Serviço e Contabilidade — Lavanderia Senhor dos Passos",
+  "author": {
+    "name": "Lavanderia Senhor dos Passos",
+    "email": "contato@lavsenhordospassos.com.br"
+  },
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:react\" \"electron .\"",
     "dev:react": "vite",
     "build": "vite build && electron-builder",
+    "build:dir": "vite build && electron-builder --dir",
     "preview": "vite preview",
     "electron": "electron .",
     "test": "node scripts/tests/run-tests.js",
@@ -17,11 +22,14 @@
   },
   "dependencies": {
     "better-sqlite3": "^9.4.0",
+    "electron-updater": "^6.8.9",
     "lucide-react": "^0.378.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.23.1",
-    "sql.js": "^1.12.0"
+    "sql.js": "^1.12.0",
+    "ssh2": "^1.17.0",
+    "ssh2-sftp-client": "^12.1.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.1",
@@ -40,17 +48,56 @@
   },
   "build": {
     "appId": "com.lavsenhordospassos.osecontabil",
-    "productName": "OS e Contabil - Lav",
+    "productName": "OS e Contabil - Lavanderia",
+    "copyright": "Copyright © 2024-2026 Lavanderia Senhor dos Passos",
+    "icon": "assets/icon",
     "directories": {
-      "output": "dist-electron"
+      "output": "dist-electron",
+      "buildResources": "assets"
     },
     "files": [
       "dist/**",
       "electron/**",
-      "node_modules/**"
+      "assets/**",
+      "node_modules/**",
+      "!node_modules/.cache/**",
+      "!node_modules/**/test/**",
+      "!node_modules/**/tests/**",
+      "!node_modules/**/*.md",
+      "!node_modules/**/*.map",
+      "!node_modules/**/LICENSE",
+      "!node_modules/**/CHANGELOG*",
+      "!node_modules/**/README*",
+      "!**/*.{log,tmp,bak}"
     ],
+    "extraResources": [],
+    "publish": null,
     "win": {
-      "target": "nsis"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "OS e Contabil - Lavanderia",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "displayLanguageSelector": false,
+      "language": "1046"
     }
   }
 }

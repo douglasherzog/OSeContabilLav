@@ -1,26 +1,15 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import { useModalFocus } from '../useModalFocus';
+import Modal from '../components/Modal';
 import { Plus, RefreshCw, Pencil, Trash2, Download, Settings } from 'lucide-react';
 import { brl, fmtDateTime, monthStart, today, exportCSV } from '../utils';
+import { nowLocalInput } from '../utils/dateHelpers';
 import { useToastCtx } from '../ToastContext';
 
 // Métodos e contas serão carregados do backend
 const DIRECTIONS = [{ v: 'in', l: 'Entrada' }, { v: 'out', l: 'Saída' }];
 
-const emptyForm = { occurred_at: nowLocal(), amount: '', direction: 'in', method: 'pix', account_label: '', category: '', description: '' };
-
-function nowLocal() {
-  // Retorna datetime local no fuso de São Paulo no formato YYYY-MM-DDTHH:mm
-  const d = new Date();
-  const brasilia = new Date(d.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-  const year = brasilia.getFullYear();
-  const month = String(brasilia.getMonth() + 1).padStart(2, '0');
-  const day = String(brasilia.getDate()).padStart(2, '0');
-  const hours = String(brasilia.getHours()).padStart(2, '0');
-  const minutes = String(brasilia.getMinutes()).padStart(2, '0');
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
-}
+const emptyForm = () => ({ occurred_at: nowLocalInput(), amount: '', direction: 'in', method: 'pix', account_label: '', category: '', description: '' });
 
 export default function Caixa() {
   const toast = useToastCtx();
@@ -109,7 +98,7 @@ export default function Caixa() {
       toast.success('Conta/banco adicionada!');
     } catch { toast.error('Erro ao adicionar conta/banco.'); }
   }
-      setForm(emptyForm);
+      setForm(emptyForm());
       setShowForm(false);
       load();
     } catch { toast.error('Erro ao salvar lançamento.'); }
@@ -170,7 +159,7 @@ export default function Caixa() {
           <button onClick={() => exportCSV(rows, `Caixa_${today()}.csv`)} className="flex items-center gap-1.5 border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg text-sm hover:bg-gray-50" disabled={rows.length === 0}>
             <Download size={15} /> Exportar
           </button>
-          <button onClick={() => { setForm(emptyForm); setEditing(null); setShowNewCat(false); setNewCatName(''); setShowForm(true); }} className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-blue-700">
+          <button onClick={() => { setForm(emptyForm()); setEditing(null); setShowNewCat(false); setNewCatName(''); setShowForm(true); }} className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-blue-700">
             <Plus size={15} /> Lançamento
           </button>
         </div>
@@ -244,37 +233,40 @@ export default function Caixa() {
         </table>
       </div>
 
-      {/* Modal Gerenciar Categorias */}
-      {showManageCats && createPortal(
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
-            <h2 className="text-lg font-bold mb-4">Gerenciar Categorias</h2>
-            <ul className="space-y-1 mb-4 max-h-64 overflow-y-auto">
-              {categories.length === 0 && <li className="text-sm text-gray-400 text-center py-4">Nenhuma categoria.</li>}
-              {categories.map(c => (
-                <li key={c} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 border">
-                  <span className="text-sm">{c}</span>
-                  <button onClick={() => handleDeleteCategory(c)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={13} /></button>
-                </li>
-              ))}
-            </ul>
-            <div className="flex gap-1 mb-3">
-              <input className="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="nova_categoria" value={newCatName} onChange={e => setNewCatName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleCreateCategory(); } }} />
-              <button type="button" onClick={handleCreateCategory} className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm">+ Adicionar</button>
-            </div>
-            <div className="flex justify-end">
-              <button onClick={() => { setShowManageCats(false); setNewCatName(''); }} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">Fechar</button>
-            </div>
-          </div>
+      <Modal
+        isOpen={showManageCats}
+        onClose={() => { setShowManageCats(false); setNewCatName(''); }}
+        title="Gerenciar Categorias"
+        maxWidth="max-w-sm"
+      >
+        <ul className="space-y-1 max-h-64 overflow-y-auto">
+          {categories.length === 0 && <li className="text-sm text-gray-400 text-center py-4">Nenhuma categoria.</li>}
+          {categories.map(c => (
+            <li key={c} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 border">
+              <span className="text-sm">{c}</span>
+              <button onClick={() => handleDeleteCategory(c)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={13} /></button>
+            </li>
+          ))}
+        </ul>
+        <div className="flex gap-1">
+          <input className="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="nova_categoria" value={newCatName} onChange={e => setNewCatName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleCreateCategory(); } }} />
+          <button type="button" onClick={handleCreateCategory} className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm">+ Adicionar</button>
         </div>
-      , document.body)}
+      </Modal>
 
-      {/* Modal Lançamento */}
-      {showForm && createPortal(
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-            <h2 className="text-lg font-bold mb-4">{editing ? 'Editar' : 'Novo'} Lançamento</h2>
-            <div className="space-y-3">
+      <Modal
+        isOpen={showForm}
+        onClose={() => { setShowForm(false); setEditing(null); setShowNewCat(false); setNewCatName(''); }}
+        title={`${editing ? 'Editar' : 'Novo'} Lançamento`}
+        maxWidth="max-w-md"
+        footer={
+          <>
+            <button type="button" onClick={() => { setShowForm(false); setEditing(null); setShowNewCat(false); setNewCatName(''); }} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">Cancelar</button>
+            <button type="button" onClick={handleSubmit} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">Salvar</button>
+          </>
+        }
+      >
+        <div className="space-y-3">
               <div className="flex gap-2">
                 <div className="flex-1">
                   <label className="text-xs text-gray-500 mb-1 block">Data/hora</label>
@@ -355,14 +347,8 @@ export default function Caixa() {
                 <label className="text-xs text-gray-500 mb-1 block">Descrição</label>
                 <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Descrição do lançamento" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
               </div>
-              <div className="flex gap-2 justify-end pt-1">
-                <button type="button" onClick={() => { setShowForm(false); setEditing(null); setShowNewCat(false); setNewCatName(''); }} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">Cancelar</button>
-                <button type="button" onClick={handleSubmit} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">Salvar</button>
-              </div>
-            </div>
-          </div>
         </div>
-      , document.body)}
+      </Modal>
     </div>
   );
 }

@@ -1,6 +1,6 @@
-import { createPortal } from 'react-dom';
 import React, { useEffect, useState, useCallback } from 'react';
 import { useModalFocus } from '../useModalFocus';
+import Modal from '../components/Modal';
 import { useNavigate } from 'react-router-dom';
 import { Plus, RefreshCw, Search, Download, Trash2 } from 'lucide-react';
 import { brl, fmtDateTime, monthStart, today, STATUS_LABELS, STATUS_COLORS, exportCSV } from '../utils';
@@ -336,7 +336,7 @@ export default function OSList() {
               </label>
             </div>
 
-            <button onClick={load} className="flex items-center gap-1.5 bg-blue-600 text-white px-4 py-1.5 rounded-lg text-sm hover:bg-blue-700">
+            <button onClick={load} className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-blue-700">
               <RefreshCw size={13} /> Aplicar filtros
             </button>
           </div>
@@ -389,12 +389,20 @@ export default function OSList() {
         </table>
       </div>
 
-      {/* Modal Nova OS */}
-      {showForm && createPortal(
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">
-            <h2 className="text-lg font-bold mb-4">Nova Ordem de Serviço</h2>
-            <div className="space-y-3">
+      <Modal
+        isOpen={showForm}
+        onClose={() => { setShowForm(false); setDraftItems([]); setClientSearch(''); setEntryPayment({ enabled: false, amount: '', method: 'dinheiro', account_label: '' }); setForm({ client_id: '', status: 'aberta', note: '', order_date: today() }); }}
+        title="Nova Ordem de Serviço"
+        maxWidth="max-w-2xl"
+        scrollable
+        footer={
+          <>
+            <button type="button" onClick={() => { setShowForm(false); setDraftItems([]); setClientSearch(''); setEntryPayment({ enabled: false, amount: '', method: 'dinheiro', account_label: '' }); setForm({ client_id: '', status: 'aberta', note: '', order_date: today() }); }} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">Cancelar</button>
+            <button type="button" onClick={handleCreate} disabled={!entryOk} title={!entryOk ? `Registre a entrada mínima de R$ ${brl(requiredEntry)}` : ''} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">Criar OS</button>
+          </>
+        }
+      >
+        <div className="space-y-3">
 
               {/* Cliente com busca */}
               <div className="flex gap-2 items-start">
@@ -688,14 +696,8 @@ export default function OSList() {
                 )}
               </div>
 
-              <div className="flex gap-2 justify-end pt-1">
-                <button type="button" onClick={() => { setShowForm(false); setDraftItems([]); setClientSearch(''); setEntryPayment({ enabled: false, amount: '', method: 'dinheiro', account_label: '' }); setForm({ client_id: '', status: 'aberta', note: '', order_date: today() }); }} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">Cancelar</button>
-                <button type="button" onClick={handleCreate} disabled={!entryOk} title={!entryOk ? `Registre a entrada mínima de R$ ${brl(requiredEntry)}` : ''} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">Criar OS</button>
-              </div>
-            </div>
-          </div>
         </div>
-      , document.body)}
+      </Modal>
     </div>
   );
 }

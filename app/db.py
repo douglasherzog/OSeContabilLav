@@ -1,10 +1,18 @@
 import sqlite3
+from flask import current_app
 from app.config import DATABASE_PATH
+
+
+def get_db_path():
+    """Retorna o caminho do banco, priorizando a config do app."""
+    if current_app:
+        return current_app.config.get("DATABASE_PATH", DATABASE_PATH)
+    return DATABASE_PATH
 
 
 def get_db():
     """Retorna uma conexão SQLite configurada com row_factory=dict."""
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = sqlite3.connect(get_db_path())
     conn.row_factory = sqlite3.Row
     return conn
 

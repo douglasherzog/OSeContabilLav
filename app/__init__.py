@@ -1,7 +1,7 @@
 from flask import Flask
 
 from app.config import SECRET_KEY
-from app.routes import dashboard
+from app.routes import dashboard, clientes
 
 
 def create_app(test_config=None):
@@ -12,5 +12,6 @@ def create_app(test_config=None):
         app.config.update(test_config)
 
     app.register_blueprint(dashboard.bp)
+    app.register_blueprint(clientes.bp)
 
     return app

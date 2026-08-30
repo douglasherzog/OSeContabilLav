@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Clientes</h1>
+    <a href="{{ url_for('clientes.create') }}" class="btn btn-primary">Novo Cliente</a>
+</div>
+
+<form method="get" action="{{ url_for('clientes.list') }}" class="search-bar">
+    <input type="text" name="q" value="{{ q }}" placeholder="Buscar por nome ou telefone...">
+    <button type="submit" class="btn">Buscar</button>
+    {% if q %}
+    <a href="{{ url_for('clientes.list') }}" class="btn btn-secondary">Limpar</a>
+    {% endif %}
+</form>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="messages">
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+<table>
+    <thead>
+        <tr>
+            <th>Nome</th>
+            <th>Telefone</th>
+            <th>E-mail</th>
+            <th>Endereço</th>
+            <th>Ações</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for c in clientes %}
+        <tr>
+            <td>{{ c.first_name }} {{ c.last_name }}</td>
+            <td>{{ c.phone or '-' }}</td>
+            <td>{{ c.email or '-' }}</td>
+            <td>{{ c.address or '-' }}</td>
+            <td class="actions">
+                <a href="{{ url_for('clientes.update', id=c.id) }}" class="btn btn-small">Editar</a>
+                <form method="post" action="{{ url_for('clientes.delete', id=c.id) }}" onsubmit="return confirm('Excluir cliente &quot;{{ c.first_name }} {{ c.last_name }}&quot;? As OS vinculadas não serão excluídas.');">
+                    <button type="submit" class="btn btn-small btn-danger">Excluir</button>
+                </form>
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="5" class="text-center">Nenhum cliente encontrado.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

@@ -55,8 +55,18 @@ OSeContabilLav/
 4. Copiar o banco: `data\osecontabil.db` (cópia do banco original de produção)
 5. Rodar: `.\venv\Scripts\python -m flask --app run.py run`
 
+## Progresso
+
+### Concluído
+
+- Estrutura base Flask + SQLite
+- Dashboard simplificado
+- Módulo **Clientes** (listar, buscar, criar, editar, excluir)
+- Testes isolados por função com banco temporário
+
 ## Testes
 
 - `tests/test_db.py`: conexão e tabelas
 - `tests/test_app.py`: renderização do dashboard
+- `tests/test_clientes.py`: CRUD de clientes
 - Comando: `.\venv\Scripts\python -m pytest -v`

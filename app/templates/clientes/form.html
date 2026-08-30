@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+
+{% set cliente = cliente or {} %}
+
+{% block content %}
+<h1>{% if cliente.id %}Editar Cliente{% else %}Novo Cliente{% endif %}</h1>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="messages">
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+<form method="post" class="form">
+    <label>
+        Nome *
+        <input type="text" name="first_name" value="{{ cliente.first_name or '' }}" required>
+    </label>
+    <label>
+        Sobrenome
+        <input type="text" name="last_name" value="{{ cliente.last_name or '' }}">
+    </label>
+    <label>
+        Telefone
+        <input type="text" name="phone" value="{{ cliente.phone or '' }}">
+    </label>
+    <label>
+        E-mail
+        <input type="email" name="email" value="{{ cliente.email or '' }}">
+    </label>
+    <label>
+        Endereço
+        <input type="text" name="address" value="{{ cliente.address or '' }}">
+    </label>
+    <div class="actions">
+        <button type="submit" class="btn btn-primary">Salvar</button>
+        <a href="{{ url_for('clientes.list') }}" class="btn btn-secondary">Cancelar</a>
+    </div>
+</form>
+{% endblock %}

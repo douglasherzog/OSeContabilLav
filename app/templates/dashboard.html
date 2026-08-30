@@ -13,7 +13,7 @@
     </div>
     <div class="card">
         <h2>Receita Caixa</h2>
-        <p>R$ {{ "%.2f" | format(receita_mes) }}</p>
+        <p>{{ receita_mes | money }}</p>
     </div>
     <div class="card">
         <h2>AP Vencidas</h2>

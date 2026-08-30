@@ -62,6 +62,8 @@ OSeContabilLav/
 - Estrutura base Flask + SQLite
 - Dashboard simplificado
 - Módulo **Clientes** (listar, buscar, criar, editar, excluir)
+- Módulo **Serviços** (listar, criar, editar, inativar, controle de entrada)
+- Filtro `money` para formatação de moeda
 - Testes isolados por função com banco temporário
 
 ## Testes
@@ -69,4 +71,5 @@ OSeContabilLav/
 - `tests/test_db.py`: conexão e tabelas
 - `tests/test_app.py`: renderização do dashboard
 - `tests/test_clientes.py`: CRUD de clientes
+- `tests/test_servicos.py`: CRUD de serviços
 - Comando: `.\venv\Scripts\python -m pytest -v`

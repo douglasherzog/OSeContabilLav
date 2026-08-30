@@ -214,3 +214,20 @@ td.text-center {
     padding: 2rem 1rem;
     color: #64748b;
 }
+
+.inline-check {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+}
+
+.inline-check input {
+    width: auto;
+    margin: 0;
+}
+
+tr.inactive {
+    opacity: 0.65;
+    background: #f8fafc;
+}

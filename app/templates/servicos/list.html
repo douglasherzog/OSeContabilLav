@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Serviços</h1>
+    <a href="{{ url_for('servicos.create') }}" class="btn btn-primary">Novo Serviço</a>
+</div>
+
+<form method="get" action="{{ url_for('servicos.list') }}" class="search-bar">
+    <label class="inline-check">
+        <input type="checkbox" name="inativos" value="1" {% if include_inactive %}checked{% endif %} onchange="this.form.submit()">
+        Mostrar inativos
+    </label>
+</form>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="messages">
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+<table>
+    <thead>
+        <tr>
+            <th>Nome</th>
+            <th>Categoria</th>
+            <th>Preço</th>
+            <th>Unidade</th>
+            <th>Entrada</th>
+            <th>Status</th>
+            <th>Ações</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for s in servicos %}
+        <tr {% if not s.active %}class="inactive"{% endif %}>
+            <td>{{ s.name }}</td>
+            <td>{{ s.category }}</td>
+            <td>{{ s.unit_price | money }}</td>
+            <td>{{ s.unit }}</td>
+            <td>
+                {% if s.requires_entry %}Sim ({{ "%.0f" | format(s.entry_pct) }}%){% else %}Não{% endif %}
+            </td>
+            <td>{{ 'Ativo' if s.active else 'Inativo' }}</td>
+            <td class="actions">
+                <a href="{{ url_for('servicos.update', id=s.id) }}" class="btn btn-small">Editar</a>
+                {% if s.active %}
+                <form method="post" action="{{ url_for('servicos.delete', id=s.id) }}" onsubmit="return confirm('Inativar serviço &quot;{{ s.name }}&quot;?');">
+                    <button type="submit" class="btn btn-small btn-danger">Inativar</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="7" class="text-center">Nenhum serviço encontrado.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

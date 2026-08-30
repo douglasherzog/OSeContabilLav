@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+
+{% set os = os or {} %}
+
+{% block content %}
+<h1>{% if os.id %}Editar OS #{{ os.number }}{% else %}Nova Ordem de Serviço{% endif %}</h1>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="messages">
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+<form method="post" class="form">
+    {% if not os.id %}
+    <label>
+        Cliente *
+        <select name="client_id" required>
+            <option value="">Selecione</option>
+            {% for c in clients %}
+            <option value="{{ c.id }}" {% if os.client_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    {% endif %}
+    <label>
+        Status
+        <select name="status">
+            {% for s in ['aberta', 'pronta', 'entregue', 'entregue_pendente'] %}
+            <option value="{{ s }}" {% if (os.status or 'aberta') == s %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    <label>
+        Responsável
+        <input type="text" name="assigned_to" value="{{ os.assigned_to or '' }}">
+    </label>
+    <label>
+        Observação
+        <textarea name="note" rows="3">{{ os.note or '' }}</textarea>
+    </label>
+    <div class="actions">
+        <button type="submit" class="btn btn-primary">Salvar</button>
+        <a href="{{ url_for('os.list') }}" class="btn btn-secondary">Cancelar</a>
+    </div>
+</form>
+{% endblock %}

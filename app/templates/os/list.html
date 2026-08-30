@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Ordens de Serviço</h1>
+    <a href="{{ url_for('os.create') }}" class="btn btn-primary">Nova OS</a>
+</div>
+
+<form method="get" action="{{ url_for('os.list') }}" class="search-bar" style="flex-wrap: wrap; gap: 0.75rem; align-items: end;">
+    <input type="text" name="q" value="{{ q }}" placeholder="Buscar número, cliente ou nota...">
+    <select name="status" onchange="this.form.submit()">
+        <option value="">Todos os status</option>
+        {% for s in statuses %}
+        <option value="{{ s }}" {% if selected_status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+    </select>
+    <input type="date" name="date_from" value="{{ date_from }}" placeholder="De">
+    <input type="date" name="date_to" value="{{ date_to }}" placeholder="Até">
+    <label class="inline-check" style="margin: 0;">
+        <input type="checkbox" name="restante" value="1" {% if remaining_only %}checked{% endif %} onchange="this.form.submit()">
+        Só com saldo
+    </label>
+    <button type="submit" class="btn">Filtrar</button>
+    <a href="{{ url_for('os.list') }}" class="btn btn-secondary">Limpar</a>
+</form>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="messages">
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+<table>
+    <thead>
+        <tr>
+            <th>Nº</th>
+            <th>Cliente</th>
+            <th>Status</th>
+            <th>Total</th>
+            <th>Pago</th>
+            <th>Restante</th>
+            <th>Data</th>
+            <th>Ações</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for o in orders %}
+        <tr>
+            <td>#{{ o.number }}</td>
+            <td>{{ o.client_name or '-' }}</td>
+            <td>{{ o.status }}</td>
+            <td>{{ o.total | money }}</td>
+            <td>{{ o.paid | money }}</td>
+            <td>{{ o.remaining | money }}</td>
+            <td>{{ o.created_at[:10] if o.created_at else '-' }}</td>
+            <td class="actions">
+                <a href="{{ url_for('os.detail', id=o.id) }}" class="btn btn-small">Abrir</a>
+                <form method="post" action="{{ url_for('os.delete', id=o.id) }}" onsubmit="return confirm('Excluir OS #{{ o.number }}?');">
+                    <button type="submit" class="btn btn-small btn-danger">Excluir</button>
+                </form>
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="8" class="text-center">Nenhuma OS encontrada.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

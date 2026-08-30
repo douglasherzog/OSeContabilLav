@@ -63,6 +63,7 @@ OSeContabilLav/
 - Dashboard simplificado
 - Módulo **Clientes** (listar, buscar, criar, editar, excluir)
 - Módulo **Serviços** (listar, criar, editar, inativar, controle de entrada)
+- Módulo **Ordens de Serviço** (listar, criar, editar, itens, pagamentos e caixa)
 - Filtro `money` para formatação de moeda
 - Testes isolados por função com banco temporário
 
@@ -72,4 +73,5 @@ OSeContabilLav/
 - `tests/test_app.py`: renderização do dashboard
 - `tests/test_clientes.py`: CRUD de clientes
 - `tests/test_servicos.py`: CRUD de serviços
+- `tests/test_os.py`: CRUD de OS, itens e pagamentos
 - Comando: `.\venv\Scripts\python -m pytest -v`

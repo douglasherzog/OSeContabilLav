@@ -2,24 +2,74 @@
 
 {% block content %}
 <h1>Painel</h1>
+
 <div class="cards">
     <div class="card">
         <h2>OS Abertas</h2>
         <p>{{ os_aberta }}</p>
     </div>
     <div class="card">
+        <h2>OS Hoje</h2>
+        <p>{{ os_hoje }}</p>
+    </div>
+    <div class="card">
         <h2>Clientes</h2>
         <p>{{ total_clientes }}</p>
     </div>
     <div class="card">
-        <h2>Receita Caixa</h2>
+        <h2>Receita Mês</h2>
         <p>{{ receita_mes | money }}</p>
+    </div>
+    <div class="card">
+        <h2>Saída Mês</h2>
+        <p>{{ saida_mes | money }}</p>
+    </div>
+    <div class="card">
+        <h2>Saldo Mês</h2>
+        <p>{{ saldo_mes | money }}</p>
     </div>
     <div class="card">
         <h2>AP Vencidas</h2>
         <p>{{ ap_vencidas }}</p>
     </div>
+    <div class="card">
+        <h2>AP Vencendo (7 dias)</h2>
+        <p>{{ ap_vencendo_7 }}</p>
+    </div>
 </div>
+
+<h2>OS por status</h2>
+<table>
+    <thead>
+        <tr><th>Status</th><th>Quantidade</th></tr>
+    </thead>
+    <tbody>
+        {% for s in os_por_status %}
+        <tr><td>{{ s.status }}</td><td>{{ s.c }}</td></tr>
+        {% else %}
+        <tr><td colspan="2" class="text-center">Nenhuma OS.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h2>OS prontas para entrega</h2>
+<table>
+    <thead>
+        <tr><th>Nº</th><th>Cliente</th><th>Total</th><th>Pago</th></tr>
+    </thead>
+    <tbody>
+        {% for o in os_prontas %}
+        <tr>
+            <td>{{ o.number }}</td>
+            <td>{{ o.client_name or '-' }}</td>
+            <td>{{ o.total | money }}</td>
+            <td>{{ o.paid | money }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-center">Nenhuma.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
 
 <h2>Últimas OS</h2>
 <table>
@@ -37,8 +87,10 @@
             <td>{{ os.number }}</td>
             <td>{{ os.client_name or '-' }}</td>
             <td>{{ os.status }}</td>
-            <td>R$ {{ "%.2f" | format(os.total) }}</td>
+            <td>{{ os.total | money }}</td>
         </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-center">Nenhuma OS.</td></tr>
         {% endfor %}
     </tbody>
 </table>

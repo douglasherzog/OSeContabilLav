@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
-from app.db import get, query, execute, insert
+from app.db import get, query, execute, insert, paginated_query
 from app.utils import now_local
 
 bp = Blueprint("servicos", __name__, url_prefix="/servicos")
@@ -15,16 +15,21 @@ def _coerce_float(value, default=0):
 @bp.route("/")
 def list():
     include_inactive = request.args.get("inativos", "0") == "1"
+    page = request.args.get("page", 1, type=int)
     if include_inactive:
-        servicos = query("SELECT * FROM services ORDER BY category ASC, name ASC")
+        base_sql = "SELECT * FROM services ORDER BY id DESC"
+        params = ()
     else:
-        servicos = query(
-            "SELECT * FROM services WHERE active=1 ORDER BY category ASC, name ASC"
-        )
+        base_sql = "SELECT * FROM services WHERE active=1 ORDER BY id DESC"
+        params = ()
+    servicos, total, page, per_page = paginated_query(base_sql, params, page)
+    pages = (total + per_page - 1) // per_page
     return render_template(
         "servicos/list.html",
         servicos=servicos,
         include_inactive=include_inactive,
+        page=page,
+        pages=pages,
     )
 
 

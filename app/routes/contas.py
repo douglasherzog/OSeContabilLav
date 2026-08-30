@@ -1,25 +1,9 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from app.db import get, query, execute, insert
 from app.utils import now_local, today, add_interval, add_months
+from app.helpers import coerce_float, normalize_method, default_account
 
 bp = Blueprint("contas", __name__, url_prefix="/contas")
-
-
-def _coerce_float(value, default=0):
-    try:
-        return float(value) if value is not None and str(value).strip() != "" else default
-    except (ValueError, TypeError):
-        return default
-
-
-def _normalize_method(m):
-    return (m or "").strip().lower() or "dinheiro"
-
-
-def _default_account(method, provided):
-    if provided and str(provided).strip():
-        return provided
-    return "Caixa" if method == "dinheiro" else ""
 
 
 def _form_context(kind, item=None, categories=None):
@@ -129,8 +113,8 @@ def _create_category(kind, name):
 
 def _save_payment(kind, item, status, amount, description, category, form):
     field = "paid_at" if kind == "accounts_payable" else "received_at"
-    m = _normalize_method(form.get("method"))
-    acc = _default_account(m, form.get("account_label"))
+    m = normalize_method(form.get("method"))
+    acc = default_account(m, form.get("account_label"))
     if m != "dinheiro" and not str(acc).strip():
         raise ValueError("Selecione uma conta/banco quando o método não for dinheiro.")
     timestamp = form.get(field) or (today() + " " + now_local()[11:16])
@@ -207,7 +191,7 @@ def ap_create():
             return render_template("contas/form.html", **_form_context("pagar", None, categories))
 
         category = request.form.get("category") or "geral"
-        amount = _coerce_float(request.form.get("amount"))
+        amount = coerce_float(request.form.get("amount"))
         due_date = request.form.get("due_date") or None
         note = request.form.get("note") or None
 
@@ -216,7 +200,7 @@ def ap_create():
         idx = 0
         while f"installment_due_date_{idx}" in request.form:
             d = request.form.get(f"installment_due_date_{idx}")
-            a = _coerce_float(request.form.get(f"installment_amount_{idx}"))
+            a = coerce_float(request.form.get(f"installment_amount_{idx}"))
             if d:
                 installments.append((d, a))
             idx += 1
@@ -287,7 +271,7 @@ def ap_update(id):
 
         status = request.form.get("status", "pendente")
         category = request.form.get("category") or "geral"
-        amount = _coerce_float(request.form.get("amount"))
+        amount = coerce_float(request.form.get("amount"))
         due_date = request.form.get("due_date") or None
         note = request.form.get("note") or None
 
@@ -302,8 +286,8 @@ def ap_update(id):
             execute("DELETE FROM cash_ledger WHERE id=?", (item["source_id"],))
             execute("UPDATE accounts_payable SET source_type='ap', source_id=NULL WHERE id=?", (id,))
 
-        m = _normalize_method(request.form.get("method")) or item.get("method")
-        acc = _default_account(m, request.form.get("account_label") or item.get("account_label"))
+        m = normalize_method(request.form.get("method")) or item.get("method")
+        acc = default_account(m, request.form.get("account_label") or item.get("account_label"))
         execute(
             """UPDATE accounts_payable SET
             description=?, category=?, amount=?, due_date=?, note=?, status=?, paid_at=?,
@@ -376,7 +360,7 @@ def ar_create():
             return render_template("contas/form.html", **_form_context("receber", None, categories))
 
         category = request.form.get("category") or "geral"
-        amount = _coerce_float(request.form.get("amount"))
+        amount = coerce_float(request.form.get("amount"))
         due_date = request.form.get("due_date") or None
         note = request.form.get("note") or None
 
@@ -384,7 +368,7 @@ def ar_create():
         idx = 0
         while f"installment_due_date_{idx}" in request.form:
             d = request.form.get(f"installment_due_date_{idx}")
-            a = _coerce_float(request.form.get(f"installment_amount_{idx}"))
+            a = coerce_float(request.form.get(f"installment_amount_{idx}"))
             if d:
                 installments.append((d, a))
             idx += 1
@@ -453,7 +437,7 @@ def ar_update(id):
 
         status = request.form.get("status", "pendente")
         category = request.form.get("category") or "geral"
-        amount = _coerce_float(request.form.get("amount"))
+        amount = coerce_float(request.form.get("amount"))
         due_date = request.form.get("due_date") or None
         note = request.form.get("note") or None
 
@@ -467,8 +451,8 @@ def ar_update(id):
             execute("DELETE FROM cash_ledger WHERE id=?", (item["source_id"],))
             execute("UPDATE accounts_receivable SET source_type='ar', source_id=NULL WHERE id=?", (id,))
 
-        m = _normalize_method(request.form.get("method")) or item.get("method")
-        acc = _default_account(m, request.form.get("account_label") or item.get("account_label"))
+        m = normalize_method(request.form.get("method")) or item.get("method")
+        acc = default_account(m, request.form.get("account_label") or item.get("account_label"))
         execute(
             """UPDATE accounts_receivable SET
             description=?, category=?, amount=?, due_date=?, note=?, status=?, received_at=?,

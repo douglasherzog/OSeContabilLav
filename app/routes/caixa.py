@@ -2,27 +2,11 @@ import re
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from app.db import get, query, execute, insert
 from app.utils import now_local, today
+from app.helpers import coerce_float, normalize_method, default_account
 
 bp = Blueprint("caixa", __name__, url_prefix="/caixa")
 
 RESERVED_CATS = ["os_pagamento", "ap_pagamento", "ar_recebimento", "manual"]
-
-
-def _normalize_method(m):
-    return (m or "").strip().lower() or "dinheiro"
-
-
-def _default_account(method, provided):
-    if provided and str(provided).strip():
-        return provided
-    return "Caixa" if method == "dinheiro" else ""
-
-
-def _coerce_float(value, default=0):
-    try:
-        return float(value) if value is not None and str(value).strip() != "" else default
-    except (ValueError, TypeError):
-        return default
 
 
 def _form_context(categories, entry=None):
@@ -94,13 +78,13 @@ def delete_category(name):
 def create():
     categories = [r["name"] for r in query("SELECT name FROM cash_categories ORDER BY name ASC")]
     if request.method == "POST":
-        m = _normalize_method(request.form.get("method"))
-        acc = _default_account(m, request.form.get("account_label"))
+        m = normalize_method(request.form.get("method"))
+        acc = default_account(m, request.form.get("account_label"))
         if m != "dinheiro" and not str(acc).strip():
             flash("Selecione uma conta/banco quando o método de pagamento não for dinheiro.", "error")
             return render_template("caixa/form.html", **_form_context(categories))
 
-        amount = _coerce_float(request.form.get("amount"))
+        amount = coerce_float(request.form.get("amount"))
         occurred_at = request.form.get("occurred_at") or (today() + " " + now_local()[11:16])
         category = request.form.get("category") or "manual"
         description = request.form.get("description") or None
@@ -126,13 +110,13 @@ def update(id):
 
     categories = [r["name"] for r in query("SELECT name FROM cash_categories ORDER BY name ASC")]
     if request.method == "POST":
-        m = _normalize_method(request.form.get("method"))
-        acc = _default_account(m, request.form.get("account_label"))
+        m = normalize_method(request.form.get("method"))
+        acc = default_account(m, request.form.get("account_label"))
         if m != "dinheiro" and not str(acc).strip():
             flash("Selecione uma conta/banco quando o método de pagamento não for dinheiro.", "error")
             return render_template("caixa/form.html", **_form_context(categories, entry))
 
-        amount = _coerce_float(request.form.get("amount"))
+        amount = coerce_float(request.form.get("amount"))
         occurred_at = request.form.get("occurred_at") or entry["occurred_at"]
         category = request.form.get("category") or entry["category"]
         description = request.form.get("description") or None

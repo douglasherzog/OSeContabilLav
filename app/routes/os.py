@@ -1,19 +1,13 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from app.db import get, query, execute, insert
 from app.utils import now_local, today, money, normalize_phone
+from app.helpers import coerce_float
 
 bp = Blueprint("os", __name__, url_prefix="/os")
 
 STATUSES = ["aberta", "pronta", "entregue", "entregue_pendente"]
 METHODS = ["dinheiro", "pix", "debito", "credito"]
 WHEN_TYPES = ["entrada", "apos_entrada", "retirada", "apos_retirada"]
-
-
-def _coerce_float(value, default=0):
-    try:
-        return float(value) if value is not None and str(value).strip() != "" else default
-    except (ValueError, TypeError):
-        return default
 
 
 def _recalc_order(order_id):
@@ -201,8 +195,8 @@ def add_item(order_id):
         flash("Informe a descrição do item.", "error")
         return redirect(url_for("os.detail", id=order_id))
 
-    quantity = _coerce_float(request.form.get("quantity"), 1)
-    unit_price = _coerce_float(request.form.get("unit_price"))
+    quantity = coerce_float(request.form.get("quantity"), 1)
+    unit_price = coerce_float(request.form.get("unit_price"))
     total = quantity * unit_price
 
     svc = get(
@@ -210,7 +204,7 @@ def add_item(order_id):
         (description,),
     )
     requires_entry = 1 if request.form.get("requires_entry") else (svc["requires_entry"] if svc else 0)
-    entry_pct = _coerce_float(request.form.get("entry_pct"), (svc["entry_pct"] if svc else 50))
+    entry_pct = coerce_float(request.form.get("entry_pct"), (svc["entry_pct"] if svc else 50))
 
     insert(
         "INSERT INTO os_items (order_id, description, quantity, unit_price, total, requires_entry, entry_pct) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -231,7 +225,7 @@ def delete_item(order_id, item_id):
 
 @bp.route("/<int:order_id>/pagamentos/adicionar", methods=["POST"])
 def add_payment(order_id):
-    amount = _coerce_float(request.form.get("amount"))
+    amount = coerce_float(request.form.get("amount"))
     if amount <= 0:
         flash("Informe um valor maior que zero.", "error")
         return redirect(url_for("os.detail", id=order_id))

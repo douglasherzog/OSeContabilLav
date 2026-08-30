@@ -6,6 +6,10 @@ def now_local():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def month_start():
+    return datetime.now().strftime("%Y-%m-01")
+
+
 def today():
     return datetime.now().strftime("%Y-%m-%d")
 
@@ -52,6 +56,20 @@ def add_interval(date_str, interval_value, interval_unit):
     if unit == "day":
         return add_days(date_str, val)
     return add_months(date_str, val)
+
+
+def paginate(items, page, per_page=20):
+    page = max(1, page)
+    start = (page - 1) * per_page
+    end = start + per_page
+    total = len(items)
+    return {
+        "items": items[start:end],
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "pages": (total + per_page - 1) // per_page,
+    }
 
 
 def money(value):

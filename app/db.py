@@ -42,3 +42,18 @@ def insert(sql, params=()):
         cur = conn.execute(sql, params)
         conn.commit()
         return cur.lastrowid
+
+
+def count(sql, params=()):
+    with get_db() as conn:
+        cur = conn.execute(sql, params)
+        return cur.fetchone()[0]
+
+
+def paginated_query(base_sql, base_params, page=1, per_page=20):
+    page = max(1, page)
+    offset = (page - 1) * per_page
+    sql = f"{base_sql} LIMIT ? OFFSET ?"
+    params = list(base_params) + [per_page, offset]
+    total = count(f"SELECT COUNT(*) FROM ({base_sql}) q", base_params)
+    return query(sql, tuple(params)), total, page, per_page

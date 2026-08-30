@@ -1,0 +1,13 @@
+{% macro pagination(endpoint, page, pages, args={}) %}
+{% if pages > 1 %}
+<div class="pagination" style="display: flex; gap: 0.5rem; justify-content: center; margin: 1.5rem 0;">
+    {% if page > 1 %}
+    <a class="btn btn-small" href="{{ url_for(endpoint, page=page-1, **args) }}">Anterior</a>
+    {% endif %}
+    <span style="padding: 0.5rem; color: #475569;">Página {{ page }} de {{ pages }}</span>
+    {% if page < pages %}
+    <a class="btn btn-small" href="{{ url_for(endpoint, page=page+1, **args) }}">Próxima</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endmacro %}

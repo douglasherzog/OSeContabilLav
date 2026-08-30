@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
-from app.db import get, query, execute, insert
+from app.db import get, query, execute, insert, paginated_query
 from app.utils import normalize_phone, now_local
 
 bp = Blueprint("clientes", __name__, url_prefix="/clientes")
@@ -8,22 +8,22 @@ bp = Blueprint("clientes", __name__, url_prefix="/clientes")
 @bp.route("/")
 def list():
     q = request.args.get("q", "").strip().lower()
+    page = request.args.get("page", 1, type=int)
     if q:
-        clientes = query(
-            """
+        base_sql = """
             SELECT *, (first_name || ' ' || last_name) AS name
             FROM clients
             WHERE (first_name || ' ' || last_name) LIKE ?
                OR phone LIKE ?
-            ORDER BY first_name ASC, last_name ASC
-            """,
-            (f"%{q}%", f"%{q}%"),
-        )
+            ORDER BY id DESC
+        """
+        params = (f"%{q}%", f"%{q}%")
     else:
-        clientes = query(
-            "SELECT *, (first_name || ' ' || last_name) AS name FROM clients ORDER BY first_name ASC, last_name ASC"
-        )
-    return render_template("clientes/list.html", clientes=clientes, q=q)
+        base_sql = "SELECT *, (first_name || ' ' || last_name) AS name FROM clients ORDER BY id DESC"
+        params = ()
+    clientes, total, page, per_page = paginated_query(base_sql, params, page)
+    pages = (total + per_page - 1) // per_page
+    return render_template("clientes/list.html", clientes=clientes, q=q, page=page, pages=pages)
 
 
 @bp.route("/novo", methods=["GET", "POST"])

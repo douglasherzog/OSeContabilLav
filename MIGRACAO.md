@@ -69,6 +69,9 @@ OSeContabilLav/
 - Módulo **Configurações** (empresa, métodos de pagamento, contas bancárias)
 - Módulo **Utilitários de banco** (backup, reparo, limpar duplicados, normalizar serviços)
 - **Importação CSV** (clientes, serviços, OS, caixa, AP, AR)
+- **Dashboard completo** com resumo real (OS, caixa, contas, clientes)
+- **Paginação** em listagens de clientes e serviços
+- **Refatoração** de helpers comuns em `app/helpers.py`
 - Filtro `money` para formatação de moeda
 - Testes isolados por função com banco temporário
 

@@ -234,3 +234,18 @@ tr.inactive {
     opacity: 0.65;
     background: #f8fafc;
 }
+
+td.positive {
+    color: #166534;
+    font-weight: 500;
+}
+
+td.negative {
+    color: #991b1b;
+    font-weight: 500;
+}
+
+tfoot td {
+    background: #f1f5f9;
+    font-weight: 600;
+}

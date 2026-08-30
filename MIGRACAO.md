@@ -64,6 +64,7 @@ OSeContabilLav/
 - Módulo **Clientes** (listar, buscar, criar, editar, excluir)
 - Módulo **Serviços** (listar, criar, editar, inativar, controle de entrada)
 - Módulo **Ordens de Serviço** (listar, criar, editar, itens, pagamentos e caixa)
+- Módulo **Caixa** (listar, criar, editar, excluir, categorias, saldo)
 - Filtro `money` para formatação de moeda
 - Testes isolados por função com banco temporário
 
@@ -74,4 +75,5 @@ OSeContabilLav/
 - `tests/test_clientes.py`: CRUD de clientes
 - `tests/test_servicos.py`: CRUD de serviços
 - `tests/test_os.py`: CRUD de OS, itens e pagamentos
+- `tests/test_caixa.py`: CRUD de caixa e categorias
 - Comando: `.\venv\Scripts\python -m pytest -v`

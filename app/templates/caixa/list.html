@@ -1,0 +1,84 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Caixa</h1>
+    <a href="{{ url_for('caixa.create') }}" class="btn btn-primary">Novo Lançamento</a>
+</div>
+
+<form method="get" action="{{ url_for('caixa.list') }}" class="search-bar" style="flex-wrap: wrap; gap: 0.75rem; align-items: end;">
+    <input type="date" name="date_from" value="{{ date_from }}" placeholder="De">
+    <input type="date" name="date_to" value="{{ date_to }}" placeholder="Até">
+    <select name="category" onchange="this.form.submit()">
+        <option value="">Todas as categorias</option>
+        {% for c in categories %}
+        <option value="{{ c }}" {% if selected_category == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+    </select>
+    <button type="submit" class="btn">Filtrar</button>
+    <a href="{{ url_for('caixa.list') }}" class="btn btn-secondary">Limpar</a>
+</form>
+
+<form method="post" action="{{ url_for('caixa.create_category') }}" class="search-bar" style="flex-wrap: wrap; gap: 0.5rem;">
+    <input type="text" name="name" placeholder="Nova categoria..." required>
+    <button type="submit" class="btn">Adicionar categoria</button>
+</form>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="messages">
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+<table>
+    <thead>
+        <tr>
+            <th>Data/Hora</th>
+            <th>Valor</th>
+            <th>Categoria</th>
+            <th>Descrição</th>
+            <th>Método</th>
+            <th>Conta</th>
+            <th>Ações</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% set total = namespace(value=0) %}
+        {% for e in entries %}
+        {% set total.value = total.value + e.amount %}
+        <tr>
+            <td>{{ e.occurred_at }}</td>
+            <td class="{% if e.amount < 0 %}negative{% else %}positive{% endif %}">
+                {{ e.amount | money }}
+            </td>
+            <td>{{ e.category }}</td>
+            <td>{{ e.description or '-' }}</td>
+            <td>{{ e.method }}</td>
+            <td>{{ e.account_label or '-' }}</td>
+            <td class="actions">
+                <a href="{{ url_for('caixa.update', id=e.id) }}" class="btn btn-small">Editar</a>
+                <form method="post" action="{{ url_for('caixa.delete', id=e.id) }}" onsubmit="return confirm('Excluir lançamento?');">
+                    <button type="submit" class="btn btn-small btn-danger">Excluir</button>
+                </form>
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="7" class="text-center">Nenhum lançamento.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+    {% if entries %}
+    <tfoot>
+        <tr>
+            <td><strong>Saldo</strong></td>
+            <td colspan="6"><strong>{{ total.value | money }}</strong></td>
+        </tr>
+    </tfoot>
+    {% endif %}
+</table>
+{% endblock %}

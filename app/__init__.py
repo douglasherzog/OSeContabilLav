@@ -1,7 +1,7 @@
 from flask import Flask
 
 from app.config import SECRET_KEY
-from app.routes import dashboard, clientes, servicos, os, caixa, contas
+from app.routes import dashboard, clientes, servicos, os, caixa, contas, configuracoes
 from app.utils import money
 
 
@@ -19,5 +19,6 @@ def create_app(test_config=None):
     app.register_blueprint(os.bp)
     app.register_blueprint(caixa.bp)
     app.register_blueprint(contas.bp)
+    app.register_blueprint(configuracoes.bp)
 
     return app

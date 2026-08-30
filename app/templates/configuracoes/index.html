@@ -1,0 +1,119 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h1>Configurações</h1>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="messages">
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+<section>
+    <h2>Dados da Empresa</h2>
+    <form method="post" action="{{ url_for('configuracoes.update_company') }}" class="form" style="max-width: 640px;">
+        <div style="display: flex; gap: 1rem;">
+            <label style="flex: 2;">Razão social<input type="text" name="business_name" value="{{ settings.business_name }}"></label>
+            <label style="flex: 1;">CNPJ<input type="text" name="cnpj" value="{{ settings.cnpj }}"></label>
+        </div>
+        <div style="display: flex; gap: 1rem;">
+            <label style="flex: 1;">Nome fantasia<input type="text" name="trading_name" value="{{ settings.trading_name }}"></label>
+            <label style="flex: 1;">Telefone<input type="text" name="phone" value="{{ settings.phone }}"></label>
+        </div>
+        <label>Endereço<input type="text" name="address" value="{{ settings.address }}"></label>
+        <div style="display: flex; gap: 1rem;">
+            <label style="flex: 1;">Cidade<input type="text" name="city" value="{{ settings.city }}"></label>
+            <label style="flex: 1;">Estado<input type="text" name="state" value="{{ settings.state }}"></label>
+            <label style="flex: 1;">CEP<input type="text" name="zip" value="{{ settings.zip }}"></label>
+        </div>
+        <label>E-mail<input type="text" name="email" value="{{ settings.email }}"></label>
+        <label>Cabeçalho de recibo<textarea name="receipt_header" rows="2">{{ settings.receipt_header }}</textarea></label>
+        <label>Rodapé de recibo<textarea name="receipt_footer" rows="2">{{ settings.receipt_footer }}</textarea></label>
+        <button type="submit" class="btn btn-primary">Salvar empresa</button>
+    </form>
+</section>
+
+<section>
+    <h2>Métodos de Pagamento</h2>
+    <table>
+        <thead>
+            <tr><th>Nome</th><th>Ativo</th><th>Ações</th></tr>
+        </thead>
+        <tbody>
+            {% for m in methods %}
+            <tr>
+                <td>{{ m.name }}</td>
+                <td>{{ 'Sim' if m.active else 'Não' }}</td>
+                <td class="actions">
+                    <form method="post" action="{{ url_for('configuracoes.update_method', name=m.name) }}" style="display: inline;">
+                        <input type="hidden" name="active" value="{{ 0 if m.active else 1 }}">
+                        <button type="submit" class="btn btn-small">{{ 'Inativar' if m.active else 'Ativar' }}</button>
+                    </form>
+                    <form method="post" action="{{ url_for('configuracoes.delete_method', name=m.name) }}" style="display: inline;" onsubmit="return confirm('Inativar método?');">
+                        <button type="submit" class="btn btn-small btn-danger">Inativar</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="text-center">Nenhum método.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <form method="post" action="{{ url_for('configuracoes.create_method') }}" class="search-bar" style="flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem;">
+        <input type="text" name="name" placeholder="Novo método..." required>
+        <label class="inline-check"><input type="checkbox" name="active" value="1" checked>Ativo</label>
+        <button type="submit" class="btn">Adicionar</button>
+    </form>
+</section>
+
+<section>
+    <h2>Contas Bancárias</h2>
+    <table>
+        <thead>
+            <tr><th>Label</th><th>Banco</th><th>Agência</th><th>Conta</th><th>Ativo</th><th>Ações</th></tr>
+        </thead>
+        <tbody>
+            {% for a in accounts %}
+            <tr>
+                <td>{{ a.label }}</td>
+                <td>{{ a.bank_name or '-' }}</td>
+                <td>{{ a.agency or '-' }}</td>
+                <td>{{ a.account_number or '-' }}</td>
+                <td>{{ 'Sim' if a.active else 'Não' }}</td>
+                <td class="actions">
+                    <form method="post" action="{{ url_for('configuracoes.update_account', id=a.id) }}" style="display: inline;">
+                        <input type="hidden" name="label" value="{{ a.label }}">
+                        <input type="hidden" name="bank_name" value="{{ a.bank_name or '' }}">
+                        <input type="hidden" name="agency" value="{{ a.agency or '' }}">
+                        <input type="hidden" name="account_number" value="{{ a.account_number or '' }}">
+                        <input type="hidden" name="active" value="{{ 0 if a.active else 1 }}">
+                        <button type="submit" class="btn btn-small">{{ 'Inativar' if a.active else 'Ativar' }}</button>
+                    </form>
+                    <form method="post" action="{{ url_for('configuracoes.delete_account', id=a.id) }}" style="display: inline;" onsubmit="return confirm('Inativar conta?');">
+                        <button type="submit" class="btn btn-small btn-danger">Inativar</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="text-center">Nenhuma conta.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <form method="post" action="{{ url_for('configuracoes.create_account') }}" class="form" style="margin-top: 1rem; max-width: 640px;">
+        <h3>Nova conta bancária</h3>
+        <div style="display: flex; gap: 1rem;">
+            <label style="flex: 1;">Label *<input type="text" name="label" required></label>
+            <label style="flex: 1;">Banco<input type="text" name="bank_name"></label>
+        </div>
+        <div style="display: flex; gap: 1rem;">
+            <label style="flex: 1;">Agência<input type="text" name="agency"></label>
+            <label style="flex: 1;">Número da conta<input type="text" name="account_number"></label>
+        </div>
+        <button type="submit" class="btn btn-primary">Adicionar conta</button>
+    </form>
+</section>
+{% endblock %}

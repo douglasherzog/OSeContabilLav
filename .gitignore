@@ -44,3 +44,18 @@ dist-electron/
 
 # Local databases / artifacts
 prod.db
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# Data (dev database)
+data/

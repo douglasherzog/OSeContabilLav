@@ -1,0 +1,62 @@
+# Plano de Migração — Electron/React/SQLite → Flask/Jinja2/SQLite
+
+## Decisões arquiteturais
+
+- **Backend:** Flask 3.0.3
+- **Frontend:** Jinja2/HTML server-side
+- **Banco:** SQLite (reaproveitado)
+- **Deploy:** aplicação local
+- **Legado:** movido para `legacy/`
+
+## Cortes e simplificações
+
+| Módulo | Decisão |
+|--------|---------|
+| Clientes, Serviços, OS | Migrar integralmente |
+| Caixa, Contas a Pagar, Contas a Receber | Migrar com dados históricos, mantendo recorrências e parcelamentos |
+| Métodos de pagamento, Contas bancárias, Categorias | Migrar CRUD |
+| Configurações da empresa | Migrar |
+| Importação CSV | Migrar |
+| Utilitários de banco (backup, reparo, limpeza) | Migrar |
+| Dashboard | Simplificar (resumo básico) |
+| Funcionários/RH | Não migrar agora |
+| Auto-update | Remover |
+| Scripts de sync Hetzner/Postgres/SSH | Descartar |
+
+## Estrutura criada
+
+```
+OSeContabilLav/
+├── legacy/                # projeto antigo
+├── app/
+│   ├── __init__.py
+│   ├── config.py
+│   ├── db.py              # conexão SQLite
+│   ├── routes/            # blueprints
+│   ├── templates/         # Jinja2
+│   └── static/            # CSS/JS
+├── tests/
+├── data/
+│   └── osecontabil.db     # cópia de dev
+├── .venv/
+├── requirements.txt
+├── run.py
+├── .env
+├── .flaskenv
+├── AGENTS.md
+└── MIGRACAO.md
+```
+
+## Configuração de ambiente
+
+1. Clonar/entrar no projeto
+2. Criar venv: `python -m venv .venv`
+3. Instalar: `.\venv\Scripts\python -m pip install -r requirements.txt`
+4. Copiar o banco: `data\osecontabil.db` (cópia do banco original de produção)
+5. Rodar: `.\venv\Scripts\python -m flask --app run.py run`
+
+## Testes
+
+- `tests/test_db.py`: conexão e tabelas
+- `tests/test_app.py`: renderização do dashboard
+- Comando: `.\venv\Scripts\python -m pytest -v`

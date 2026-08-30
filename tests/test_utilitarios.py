@@ -1,3 +1,4 @@
+import io
 import os
 
 
@@ -58,3 +59,26 @@ def test_normalize_units(client, app):
         from app.db import get
         s = get("SELECT name FROM services WHERE name LIKE '%terno%'")
         assert s["name"] == "De terno"
+
+
+def test_import_csv_clientes(client, app):
+    csv_content = "name;phone;email\nJoão Silva;51999999999;joao@test.com\nMaria Souza;51888888888;maria@test.com"
+    data = {
+        "table": "clientes",
+        "csv": (io.BytesIO(csv_content.encode("utf-8")), "clientes.csv"),
+    }
+    response = client.post(
+        "/utilitarios/importar-csv",
+        data=data,
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert "2 registros importados" in _text(response)
+
+    with app.app_context():
+        from app.db import get
+        row = get("SELECT * FROM clients WHERE phone=?", ("51999999999",))
+        assert row
+        assert row["first_name"] == "João"
+        assert row["last_name"] == "Silva"

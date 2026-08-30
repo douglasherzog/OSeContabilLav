@@ -40,5 +40,10 @@
             <button type="submit" class="btn">Normalizar</button>
         </form>
     </div>
+    <div class="card">
+        <h2>Importar CSV</h2>
+        <p>Importa dados de CSV para clientes, serviços, OS, caixa, AP e AR.</p>
+        <a href="{{ url_for('utilitarios.import_csv') }}" class="btn btn-primary">Importar</a>
+    </div>
 </section>
 {% endblock %}

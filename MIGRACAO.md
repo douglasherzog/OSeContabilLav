@@ -68,6 +68,7 @@ OSeContabilLav/
 - Módulo **Contas a Pagar** e **Contas a Receber** (listar, criar, editar, parcelas, recorrências, caixa)
 - Módulo **Configurações** (empresa, métodos de pagamento, contas bancárias)
 - Módulo **Utilitários de banco** (backup, reparo, limpar duplicados, normalizar serviços)
+- **Importação CSV** (clientes, serviços, OS, caixa, AP, AR)
 - Filtro `money` para formatação de moeda
 - Testes isolados por função com banco temporário
 

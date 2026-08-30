@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h1>Importar CSV</h1>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="messages">
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+<form method="post" action="{{ url_for('utilitarios.import_csv') }}" enctype="multipart/form-data" class="form" style="max-width: 600px;">
+    <label>
+        Tabela de destino
+        <select name="table" required>
+            <option value="clientes">Clientes</option>
+            <option value="servicos">Serviços</option>
+            <option value="os">Ordens de Serviço</option>
+            <option value="caixa">Caixa</option>
+            <option value="ap">Contas a Pagar</option>
+            <option value="ar">Contas a Receber</option>
+        </select>
+    </label>
+    <label>
+        Arquivo CSV (separado por ponto-e-vírgula)
+        <input type="file" name="csv" accept=".csv" required>
+    </label>
+    <div class="actions">
+        <button type="submit" class="btn btn-primary">Importar</button>
+        <a href="{{ url_for('utilitarios.index') }}" class="btn btn-secondary">Voltar</a>
+    </div>
+</form>
+
+<section style="margin-top: 2rem;">
+    <h2>Formato esperado</h2>
+    <p>Use a primeira linha como cabeçalho e ponto-e-vírgula (;) como separador. As colunas esperadas variam conforme a tabela:</p>
+    <ul>
+        <li><strong>Clientes:</strong> name (ou first_name + last_name), phone, email, address</li>
+        <li><strong>Serviços:</strong> name, unit_price, unit, category, active</li>
+        <li><strong>OS:</strong> number, title, status, total, payment_status, note, created_at</li>
+        <li><strong>Caixa:</strong> occurred_at, amount, method, account_label, category, description</li>
+        <li><strong>AP / AR:</strong> description, category, amount, due_date, status, note</li>
+    </ul>
+</section>
+{% endblock %}

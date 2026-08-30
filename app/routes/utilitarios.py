@@ -1,8 +1,10 @@
+import io
 import os
 import shutil
 from datetime import datetime
-from flask import Blueprint, render_template, send_file, flash, redirect, url_for
-from app.db import get, execute, query, get_db_path
+from flask import Blueprint, render_template, send_file, flash, redirect, url_for, request
+from app.db import get, execute, query, insert, get_db_path
+from app.utils import now_local
 
 bp = Blueprint("utilitarios", __name__, url_prefix="/utilitarios")
 
@@ -73,3 +75,120 @@ def normalize_units():
     except Exception as e:
         flash(f"Erro na normalização: {e}", "error")
     return redirect(url_for("utilitarios.index"))
+
+
+@bp.route("/importar-csv", methods=["GET", "POST"])
+def import_csv():
+    if request.method == "POST":
+        table = request.form.get("table")
+        file = request.files.get("csv")
+        if not file or file.filename == "":
+            flash("Selecione um arquivo CSV.", "error")
+            return redirect(url_for("utilitarios.import_csv"))
+
+        try:
+            content = file.read().decode("utf-8")
+            lines = [l for l in content.split("\n") if l.strip()]
+            if not lines:
+                flash("Arquivo vazio.", "error")
+                return redirect(url_for("utilitarios.import_csv"))
+
+            headers = [h.strip().strip('"') for h in lines[0].split(";")]
+            count = 0
+            for i in range(1, len(lines)):
+                cols = [c.strip().strip('"') or None for c in lines[i].split(";")]
+                row = {h: cols[idx] if idx < len(cols) else None for idx, h in enumerate(headers)}
+                try:
+                    _import_row(table, row)
+                    count += 1
+                except Exception:
+                    pass
+            flash(f"{count} registros importados.", "success")
+            return redirect(url_for("utilitarios.import_csv"))
+        except Exception as e:
+            flash(f"Erro na importação: {e}", "error")
+            return redirect(url_for("utilitarios.import_csv"))
+
+    return render_template("utilitarios/importar.html")
+
+
+def _import_row(table, row):
+    if table == "os":
+        insert(
+            "INSERT OR IGNORE INTO service_orders (number, title, status, total, payment_status, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                row.get("number"),
+                row.get("title"),
+                row.get("status") or "aberta",
+                row.get("total") or 0,
+                row.get("payment_status") or "em_aberto",
+                row.get("note"),
+                row.get("created_at") or now_local(),
+            ),
+        )
+    elif table == "caixa":
+        insert(
+            "INSERT INTO cash_ledger (occurred_at, amount, method, account_label, category, description, source_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                row.get("occurred_at"),
+                row.get("amount") or 0,
+                row.get("method"),
+                row.get("account_label"),
+                row.get("category") or "manual",
+                row.get("description"),
+                row.get("source_type") or "manual",
+            ),
+        )
+    elif table == "ap":
+        insert(
+            "INSERT OR IGNORE INTO accounts_payable (description, category, amount, due_date, status, note) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                row.get("description"),
+                row.get("category") or "geral",
+                row.get("amount") or 0,
+                row.get("due_date"),
+                row.get("status") or "pendente",
+                row.get("note"),
+            ),
+        )
+    elif table == "ar":
+        insert(
+            "INSERT OR IGNORE INTO accounts_receivable (description, category, amount, due_date, status, note) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                row.get("description"),
+                row.get("category") or "geral",
+                row.get("amount") or 0,
+                row.get("due_date"),
+                row.get("status") or "pendente",
+                row.get("note"),
+            ),
+        )
+    elif table == "clientes":
+        full = (row.get("name") or "").strip()
+        parts = full.split()
+        first_name = row.get("first_name") or (parts[0] if parts else full or "")
+        last_name = row.get("last_name") or (" ".join(parts[1:]) if len(parts) > 1 else ".")
+        insert(
+            "INSERT OR IGNORE INTO clients (first_name, last_name, phone, email, address, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (first_name, last_name, row.get("phone") or "", row.get("email") or "", row.get("address") or "", row.get("created_at") or now_local()),
+        )
+    elif table == "servicos":
+        active = row.get("active")
+        if active is None:
+            active_int = 1
+        else:
+            active_int = 1 if active.lower() in ("true", "1", "sim") else 0
+        insert(
+            "INSERT OR IGNORE INTO services (name, description, category, unit_price, unit, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                row.get("name"),
+                row.get("description") or "",
+                row.get("category") or "geral",
+                float(row.get("unit_price") or row.get("price") or 0),
+                row.get("unit") or "un",
+                active_int,
+                row.get("created_at") or now_local(),
+            ),
+        )
+    else:
+        raise ValueError("Tabela inválida")

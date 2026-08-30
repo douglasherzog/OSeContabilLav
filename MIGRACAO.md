@@ -67,6 +67,7 @@ OSeContabilLav/
 - Módulo **Caixa** (listar, criar, editar, excluir, categorias, saldo)
 - Módulo **Contas a Pagar** e **Contas a Receber** (listar, criar, editar, parcelas, recorrências, caixa)
 - Módulo **Configurações** (empresa, métodos de pagamento, contas bancárias)
+- Módulo **Utilitários de banco** (backup, reparo, limpar duplicados, normalizar serviços)
 - Filtro `money` para formatação de moeda
 - Testes isolados por função com banco temporário
 
@@ -80,4 +81,5 @@ OSeContabilLav/
 - `tests/test_caixa.py`: CRUD de caixa e categorias
 - `tests/test_contas.py`: CRUD de contas a pagar e a receber
 - `tests/test_configuracoes.py`: configurações, métodos e contas bancárias
+- `tests/test_utilitarios.py`: utilitários de banco
 - Comando: `.\venv\Scripts\python -m pytest -v`

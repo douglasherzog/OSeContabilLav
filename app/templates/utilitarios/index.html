@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h1>Utilitários de Banco</h1>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="messages">
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+<section class="cards">
+    <div class="card">
+        <h2>Backup</h2>
+        <p>Faz o download de uma cópia do banco de dados.</p>
+        <a href="{{ url_for('utilitarios.backup') }}" class="btn btn-primary">Baixar backup</a>
+    </div>
+    <div class="card">
+        <h2>Limpar duplicados</h2>
+        <p>Remove duplicatas de contas a pagar e a receber.</p>
+        <form method="post" action="{{ url_for('utilitarios.cleanup_duplicates') }}">
+            <button type="submit" class="btn btn-danger">Limpar</button>
+        </form>
+    </div>
+    <div class="card">
+        <h2>Reparar</h2>
+        <p>Corrige campos nulos/inválidos em OS, caixa, AP e AR.</p>
+        <form method="post" action="{{ url_for('utilitarios.repair') }}">
+            <button type="submit" class="btn btn-danger">Reparar</button>
+        </form>
+    </div>
+    <div class="card">
+        <h2>Normalizar serviços</h2>
+        <p>Remove o prefixo "Lavagem " dos nomes de serviços.</p>
+        <form method="post" action="{{ url_for('utilitarios.normalize_units') }}">
+            <button type="submit" class="btn">Normalizar</button>
+        </form>
+    </div>
+</section>
+{% endblock %}

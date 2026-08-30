@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ title }}</h1>
+    <a href="{{ url_for('contas.ap_create' if kind == 'pagar' else 'contas.ar_create') }}" class="btn btn-primary">Nova Conta</a>
+</div>
+
+<form method="get" action="{{ url_for('contas.ap_list' if kind == 'pagar' else 'contas.ar_list') }}" class="search-bar" style="flex-wrap: wrap; gap: 0.75rem; align-items: end;">
+    <select name="status" onchange="this.form.submit()">
+        <option value="">Todos</option>
+        {% for s in statuses %}
+        <option value="{{ s }}" {% if selected_status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+    </select>
+    <input type="date" name="date_from" value="{{ date_from }}" placeholder="De">
+    <input type="date" name="date_to" value="{{ date_to }}" placeholder="Até">
+    <button type="submit" class="btn">Filtrar</button>
+    <a href="{{ url_for('contas.ap_list' if kind == 'pagar' else 'contas.ar_list') }}" class="btn btn-secondary">Limpar</a>
+</form>
+
+<form method="post" action="{{ url_for('contas.ap_create_category' if kind == 'pagar' else 'contas.ar_create_category') }}" class="search-bar" style="flex-wrap: wrap; gap: 0.5rem;">
+    <input type="text" name="name" placeholder="Nova categoria..." required>
+    <button type="submit" class="btn">Adicionar categoria</button>
+</form>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="messages">
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+<table>
+    <thead>
+        <tr>
+            <th>Descrição</th>
+            <th>Categoria</th>
+            <th>Valor</th>
+            <th>Vencimento</th>
+            <th>Status</th>
+            <th>Ações</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% set total = namespace(value=0) %}
+        {% for item in items %}
+        {% set total.value = total.value + (item.amount or 0) %}
+        <tr {% if item.due_date and item.due_date < today and item.status == statuses[0] %}class="overdue"{% endif %}>
+            <td>{{ item.description }}</td>
+            <td>{{ item.category }}</td>
+            <td>{{ item.amount | money }}</td>
+            <td>{{ item.due_date or '-' }}</td>
+            <td>{{ item.status }}</td>
+            <td class="actions">
+                <a href="{{ url_for('contas.ap_update' if kind == 'pagar' else 'contas.ar_update', id=item.id) }}" class="btn btn-small">Editar</a>
+                <form method="post" action="{{ url_for('contas.ap_delete' if kind == 'pagar' else 'contas.ar_delete', id=item.id) }}" onsubmit="return confirm('Excluir?');">
+                    <button type="submit" class="btn btn-small btn-danger">Excluir</button>
+                </form>
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="6" class="text-center">Nenhuma conta.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+    {% if items %}
+    <tfoot>
+        <tr>
+            <td><strong>Total</strong></td>
+            <td colspan="5"><strong>{{ total.value | money }}</strong></td>
+        </tr>
+    </tfoot>
+    {% endif %}
+</table>
+{% endblock %}

@@ -73,6 +73,7 @@ OSeContabilLav/
 - **Paginação** em listagens de clientes e serviços
 - **Refatoração** de helpers comuns em `app/helpers.py`
 - Filtro `money` para formatação de moeda
+- **Script de reset da base** (`scripts/reset_database.py`) mantendo clientes e serviços
 - Testes isolados por função com banco temporário
 
 ## Testes
@@ -87,3 +88,7 @@ OSeContabilLav/
 - `tests/test_configuracoes.py`: configurações, métodos e contas bancárias
 - `tests/test_utilitarios.py`: utilitários de banco
 - Comando: `.\venv\Scripts\python -m pytest -v`
+
+## Utilitários
+
+- `scripts/reset_database.py`: zera o banco mantendo apenas `clients` e `services`, faz backup automático em `data/backups/`
